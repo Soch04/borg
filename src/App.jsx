@@ -8,6 +8,7 @@ import AuthPage        from './pages/AuthPage'
 import MessagingPage   from './pages/MessagingPage'
 import ProfilePage     from './pages/ProfilePage'
 import BotSettingsPage from './pages/BotSettingsPage'
+import UserInputPage   from './pages/UserInputPage'
 import OrgPage         from './pages/OrgPage'
 import AdminDashboard  from './pages/AdminDashboard'
 
@@ -47,6 +48,10 @@ function AppRoutes() {
         <Route
           path="/bot-settings"
           element={<Layout><BotSettingsPage /></Layout>}
+        />
+        <Route
+          path="/user-input"
+          element={<Layout><UserInputPage /></Layout>}
         />
         <Route
           path="/org"

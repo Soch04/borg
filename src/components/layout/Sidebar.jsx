@@ -4,13 +4,14 @@ import { signOut } from '../../firebase/auth'
 import {
   RiMessage3Line, RiRobot2Line, RiUser3Line,
   RiBuildingLine, RiShieldLine, RiLogoutBoxRLine,
-  RiHexagonFill,
+  RiHexagonFill, RiInputMethodLine,
 } from 'react-icons/ri'
 import './Sidebar.css'
 
 const navItems = [
   { to: '/messaging',    icon: RiMessage3Line, label: 'Messaging' },
   { to: '/bot-settings', icon: RiRobot2Line,   label: 'My Agent' },
+  { to: '/user-input',   icon: RiInputMethodLine, label: 'User Input' },
   { to: '/profile',      icon: RiUser3Line,    label: 'Profile' },
   { to: '/org',          icon: RiBuildingLine, label: 'Organization' },
 ]
