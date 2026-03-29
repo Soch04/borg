@@ -43,9 +43,8 @@ import mammoth from 'mammoth'
 export async function extractTextFromDocx(file) {
   if (!file) throw new Error('extractTextFromDocx: file is required')
 
-  const name = file?.name || '';
-  const isDocx = name.toLowerCase().endsWith('.docx') ||
-    file?.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  const isDocx = file.name.endsWith('.docx') ||
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
   if (!isDocx) {
     throw new Error('extractTextFromDocx: input must be a .docx file')

@@ -43,7 +43,7 @@
 import { GEMINI_API_KEY, GEMINI_MODEL } from '../context/AppConfig'
 import { safeJsonParse, buildGeminiFetchOptions } from '../utils/apiHelpers'
 
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`
 
 /** Minimum relevance score (0–10) to include a chunk in the final context */
 const RELEVANCE_THRESHOLD = 6

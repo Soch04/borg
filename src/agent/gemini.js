@@ -1,6 +1,6 @@
 /**
  * gemini.js
- * Wrapper around the Google Gemini REST API (v1beta generateContent endpoint).
+ * Wrapper around the Google Gemini REST API (v1 generateContent endpoint).
  *
  * Why REST vs SDK: The @google/generative-ai npm SDK does not support browser
  * environments cleanly with Vite — the REST endpoint works without Node.js shims.
@@ -33,8 +33,8 @@
 import { GEMINI_API_KEY, GEMINI_MODEL } from '../context/AppConfig'
 import { isRetryableStatus, geminiCircuit } from '../utils/apiHelpers'
 
-const GEMINI_ENDPOINT        = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
-const GEMINI_STREAM_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent`
+const GEMINI_ENDPOINT        = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`
+const GEMINI_STREAM_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:streamGenerateContent`
 
 /**
  * Exponential backoff delay: 1s → 2s → 4s (with ±10% jitter to avoid thundering herd).

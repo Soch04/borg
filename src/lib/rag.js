@@ -60,7 +60,7 @@ function getPinecone() {
 function getEmbeddingModel() {
   if (!_embeddingModel) {
     const genAI = new GoogleGenerativeAI(getGeminiKey());
-    _embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    _embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' }, { apiVersion: 'v1' });
   }
   return _embeddingModel;
 }

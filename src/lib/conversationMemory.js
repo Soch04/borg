@@ -45,7 +45,7 @@
 
 import { GEMINI_API_KEY, GEMINI_MODEL } from '../context/AppConfig'
 
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`
 
 /** Number of turns in history before compression triggers */
 const SUMMARIZE_THRESHOLD = 16

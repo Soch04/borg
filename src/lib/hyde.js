@@ -48,7 +48,7 @@
 
 import { GEMINI_API_KEY, GEMINI_MODEL } from '../context/AppConfig'
 
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`
 
 /**
  * Determine if HyDE would benefit this query type.
