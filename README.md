@@ -1,5 +1,8 @@
 # Project Borg — Org Knowledge Query Platform
 
+[![Build Check](https://github.com/Soch04/borg/actions/workflows/build-check.yml/badge.svg)](https://github.com/Soch04/borg/actions/workflows/build-check.yml)
+[![Firebase Deploy](https://github.com/Soch04/borg/actions/workflows/firebase-deploy.yml/badge.svg)](https://github.com/Soch04/borg/actions/workflows/firebase-deploy.yml)
+
 > **Yconic Hackathon — Track: Most Innovative Hack**
 > Built in 24 hours · March 28–29, 2026
 > **Live:** [https://polly-970c1.web.app](https://polly-970c1.web.app)
