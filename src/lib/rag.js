@@ -30,6 +30,7 @@
  */
 import { Pinecone } from '@pinecone-database/pinecone';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getCachedEmbedding, setCachedEmbedding } from './embeddingCache';
 
 // ─── API Key Strategy ─────────────────────────────────────────────────────────
 // Keys are read from VITE_ environment variables, making them available client-side.
@@ -66,12 +67,25 @@ function getEmbeddingModel() {
 
 /**
  * Generate an embedding vector for a string of text.
- * @param {string} text 
- * @returns {Promise<number[]>}
+ * Checks the LRU embedding cache first — on cache hit, skips the Gemini API
+ * call entirely (saves ~200-400ms per repeated query).
+ *
+ * @param {string} text
+ * @returns {Promise<number[]>} 768-dimensional vector
  */
 export async function generateEmbedding(text) {
+  // Check LRU cache first
+  const cached = await getCachedEmbedding(text)
+  if (cached) return cached
+
+  // Cache miss — call Gemini text-embedding-004
   const result = await getEmbeddingModel().embedContent(text);
-  return result.embedding.values;
+  const vector = result.embedding.values
+
+  // Store in cache for future hits
+  await setCachedEmbedding(text, vector)
+
+  return vector
 }
 
 /**
