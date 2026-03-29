@@ -25,11 +25,11 @@ import {
   sendBotMessage,
 } from '../firebase/firestore'
 import { callGemini } from '../agent/gemini'
-import { buildSystemPrompt } from '../agent/buildPrompt'
+import { buildSystemPrompt, parseEscalation } from '../agent/buildPrompt'
 import { sanitizeAgentOutput } from '../agent/sanitize'
 
-// ── Confidence-check prompt template ─────────────────────────────────────────
-function buildConfidencePrompt(myAgentName, senderName, question, agentInstructions) {
+// ── Automatic Reply prompt template ─────────────────────────────────────────
+function buildReplyPrompt(myAgentName, senderName, question, agentInstructions) {
   return [
     `You are ${myAgentName}. You received this inter-agent message from ${senderName}:`,
     `"${question}"`,
@@ -40,17 +40,10 @@ function buildConfidencePrompt(myAgentName, senderName, question, agentInstructi
     `• Do NOT write any email headers (no "To:", "From:", "Subject:", "CC:", "Date:")`,
     `• Do NOT use email format at all — write natural conversational language only`,
     `• Do NOT describe what you will do — write the actual content`,
-    ``,
-    `Can you answer this question with high confidence based on your knowledge?`,
-    ``,
-    `Reply EXACTLY in this format:`,
-    `CONFIDENCE: HIGH`,
-    `[Your complete reply message — 3 sentences max — conversational tone — no headers]`,
-    ``,
-    `OR:`,
-    ``,
-    `CONFIDENCE: LOW`,
-    `[One sentence explaining what specific information you are missing]`,
+    `• Answer the question directly and completely on behalf of your owner.`,
+    `• If you have the answer, you are fully autonomous. Do NOT pause to ask your human owner.`,
+    `• If you absolutely do NOT have the required information to answer, output exactly: [ESCALATE: <brief topic>]`,
+    `• Keep it under 3 sentences.`,
   ].join('\n')
 }
 
@@ -116,12 +109,12 @@ async function handleIncoming({ user, agent, incomingMsg, setEscalation }) {
   await updateAgentStatus(user.uid, 'in-conversation').catch(() => {})
   await setConversationActive(incomingMsg.convId, true).catch(() => {})
 
-  // ── Step 1: Confidence check ──────────────────────────────────────────────
-  let confidenceResponse
+  // ── Step 1: Generate Automatic Reply ──────────────────────────────────────
+  let replyResponse
   try {
-    confidenceResponse = await callGemini({
+    replyResponse = await callGemini({
       systemPrompt: buildSystemPrompt(user, agent),
-      userMessage:  buildConfidencePrompt(
+      userMessage:  buildReplyPrompt(
         myAgentName,
         senderName,
         msgContent,
@@ -130,87 +123,98 @@ async function handleIncoming({ user, agent, incomingMsg, setEscalation }) {
       history: [],
     })
   } catch (err) {
-    console.error('[AgentInbox] Confidence check failed:', err.message)
-    confidenceResponse = 'CONFIDENCE: LOW\nUnable to process — system error.'
+    console.error('[AgentInbox] Reply generation failed:', err.message)
+    replyResponse = `I received your message but encountered a system error while processing it. — ${myAgentName}`
   }
 
-  const firstLine        = confidenceResponse.split('\n')[0].trim().toUpperCase()
-  const isHighConfidence = firstLine.includes('CONFIDENCE: HIGH')
-  const bodyLines        = sanitizeAgentOutput(
-    confidenceResponse.split('\n').slice(1).join('\n').trim()
-  )
+  const rawReply = replyResponse.trim()
+  const { isEscalation, topic } = parseEscalation(rawReply)
 
-  console.log('[AgentInbox] Confidence:', isHighConfidence ? 'HIGH ✅' : 'LOW ⚠️')
-
-  if (isHighConfidence) {
-    // ── Step 2a: Autonomous reply ─────────────────────────────────────────
-    const replyContent = bodyLines ||
-      `Thank you for reaching out. I'll follow up shortly. — ${myAgentName}`
-
+  if (isEscalation) {
+    console.log(`[AgentInbox] Escalation triggered for topic: ${topic} ✅`)
+    
+    // 1. Send wait message to Sender Agent
+    const waitMessage = `I don't have this information right now. I've asked my owner, ${user.displayName}, and will get back to you shortly. — ${myAgentName}`
     await logBotToBotMessage(
       user.uid,
       incomingMsg.senderId,
       myAgentName,
       senderName,
-      replyContent,
+      waitMessage,
       agent.department ?? 'General',
       incomingMsg.convId,
     )
 
-    // ── Notify the user in their personal chat ────────────────────────────
-    // Always inform the user what their agent received and what it did.
-    const userNotification = await callGemini({
-      systemPrompt: buildSystemPrompt(user, agent),
-      userMessage:  [
-        `You just received and automatically replied to an inter-agent message.`,
-        `The message from ${senderName} was:`,
-        `"${msgContent}"`,
-        ``,
-        `Your reply was:`,
-        `"${replyContent}"`,
-        ``,
-        `Write a SHORT (2-3 sentence) natural language notification for ${user.displayName} summarising:`,
-        `1. What ${senderName} told you`,
-        `2. Any important information or action the user needs to know about`,
-        `3. What you replied`,
-        ``,
-        `Write directly to ${user.displayName}. Be specific about the actual content.`,
-        `CRITICAL: If the message mentions anything being misplaced, missing, or someone needs information — make sure to include that clearly.`,
-        `Do NOT use email headers. Write in plain, friendly language.`,
-      ].join('\n'),
-      history: [],
-    }).catch(() =>
-      `📨 I received a message from ${senderName} in the Agent Hub: "${msgContent.slice(0, 120)}${msgContent.length > 120 ? '…' : ''}". I replied on your behalf.`
-    )
-
-    await sendBotMessage(
-      user.uid,
-      sanitizeAgentOutput(userNotification),
-      myAgentName,
-    ).catch(err => console.warn('[AgentInbox] Personal notification failed:', err.message))
-
-    console.log('[AgentInbox] Autonomous reply + user notification sent ✅')
-
-  } else {
-    // ── Step 2b: Escalation → human-in-the-loop ───────────────────────────
-    const topic = deriveTopic(msgContent)
-    console.log('[AgentInbox] Escalating — topic:', topic)
-
-    // Notify the user even before they type anything
-    await sendBotMessage(
-      user.uid,
-      `📨 I received a message from **${senderName}** in the Agent Hub about **${topic}**. I don't have enough information to answer on your behalf — please check the banner below and tell me what to say.`,
-      myAgentName,
-    ).catch(() => {})
-
+    // 2. Trigger UI banner
     setEscalation({
-      convId:          incomingMsg.convId,
-      incomingMsg:     { ...incomingMsg, content: msgContent, senderName },
+      convId: incomingMsg.convId,
+      incomingMsg,
       senderAgentName: senderName,
-      topic,
-      reason:          bodyLines,
+      topic: topic || deriveTopic(msgContent),
     })
+
+    // 3. Notify owner in personal chat
+    const escalationNotice = `📨 **${senderName}** asked me about "${msgContent}". I didn't have the answer, so I paused to ask you. Please type your reply here and I will forward it to them!`
+    await sendBotMessage(
+      user.uid,
+      escalationNotice,
+      myAgentName,
+    ).catch(err => console.warn('[AgentInbox] Escalation notification failed:', err.message))
+
+    await updateAgentStatus(user.uid, 'active').catch(() => {})
+    setTimeout(() => setConversationActive(incomingMsg.convId, false).catch(() => {}), 4000)
+    return
   }
+
+  const replyContent = sanitizeAgentOutput(rawReply) ||
+    `Thank you for reaching out. I'll follow up shortly. — ${myAgentName}`
+
+  console.log('[AgentInbox] Autonomous reply generated ✅')
+
+  // ── Step 2: Send Autonomous reply ─────────────────────────────────────────
+  await logBotToBotMessage(
+    user.uid,
+    incomingMsg.senderId,
+    myAgentName,
+    senderName,
+    replyContent,
+    agent.department ?? 'General',
+    incomingMsg.convId,
+  )
+
+  // ── Notify the user in their personal chat ────────────────────────────
+  // Always inform the user what their agent received and what it did.
+  const userNotification = await callGemini({
+    systemPrompt: buildSystemPrompt(user, agent),
+    userMessage:  [
+      `You just received and automatically replied to an inter-agent message.`,
+      `The message from ${senderName} was:`,
+      `"${msgContent}"`,
+      ``,
+      `Your reply was:`,
+      `"${replyContent}"`,
+      ``,
+      `Write a SHORT (2-3 sentence) natural language notification for ${user.displayName} summarising:`,
+      `1. What ${senderName} told you`,
+      `2. Any important information or action the user needs to know about`,
+      `3. What you replied`,
+      ``,
+      `Write directly to ${user.displayName}. Be specific about the actual content.`,
+      `CRITICAL: If the message mentions anything being misplaced, missing, or someone needs information — make sure to include that clearly.`,
+      `Do NOT use email headers. Write in plain, friendly language.`,
+    ].join('\n'),
+    history: [],
+  }).catch(() =>
+    `📨 I received a message from ${senderName} in the Agent Hub: "${msgContent.slice(0, 120)}${msgContent.length > 120 ? '…' : ''}". I replied on your behalf.`
+  )
+
+  await sendBotMessage(
+    user.uid,
+    sanitizeAgentOutput(userNotification),
+    myAgentName,
+  ).catch(err => console.warn('[AgentInbox] Personal notification failed:', err.message))
+
+  console.log('[AgentInbox] Autonomous reply + user notification sent ✅')
 
   await updateAgentStatus(user.uid, 'active').catch(() => {})
   setTimeout(() => setConversationActive(incomingMsg.convId, false).catch(() => {}), 4000)

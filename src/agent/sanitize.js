@@ -26,17 +26,30 @@ export function sanitizeAgentOutput(text) {
   let out = text
 
   // 1. Remove a leading block of header lines (multi-line format)
-  out = out.replace(BLOCK_HEADER_RE, '')
+  out = out.replace(/^(?:\s*(?:To|From|Subject|CC|Date|Re):[^\n]*\n)+/im, '')
 
   // 2. Remove any surviving standalone header lines
-  out = out.replace(LEFTOVER_RE, '')
+  out = out.replace(/^(?:To|From|Subject|Re|CC|Date):\s*.+?\n/gim, '')
 
-  // 3. Remove "To: X From: Y Subject: Z" inline at the very start of content
+  // 3. Remove single-line concatenated headers that sometimes occur
   out = out.replace(/^To:\s*\S+\s*/i, '')
-  out = out.replace(/^From:\s*[^\n]+?\s*/i, '')
-  out = out.replace(/^Subject:\s*[^\n]+?\s*/i, '')
+  out = out.replace(/^From:\s*.*?(?=(Subject:|Body:|\n|$))\s*/i, '')
+  out = out.replace(/^Subject:\s*.*?(?=(Body:|\n|$))\s*/i, '')
+  
+  // 4. Fallback: aggressive sweep for inline headers at the very start
+  // This handles the format: "To: email@domain.com From: Name Subject: Topic Text..."
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const oldOut = out;
+    out = out.replace(/^To:\s*\S+\s*/i, '');
+    out = out.replace(/^From:\s*[A-Za-z0-9\s'._-]+? Agent\s*/i, '');
+    out = out.replace(/^From:\s*[A-Za-z0-9\s'._-]+\s*/i, ''); // Generic From
+    out = out.replace(/^Subject:\s*[^\n.!?:]+\s*/i, '');
+    if (out !== oldOut) changed = true;
+  }
 
-  // 4. Remove mid-sentence email-header fragments the model sometimes appends
+  // 5. Remove mid-sentence email-header fragments the model sometimes appends
   out = out.replace(/\bTo:\s*\S+@\S+\b/gi, '')
   out = out.replace(/\bFrom:\s*[\w\s']+(?:Agent|Bot)\b/gi, '')
 

@@ -62,9 +62,12 @@ async function dispatchSingle({ user, agent, systemPrompt, userMessage, target }
         `You are ${senderAgentName}. Write the ACTUAL agent-to-agent message you are sending RIGHT NOW to ${targetAgentName}.`,
         `Topic: "${userMessage}"`,
         `Write the message directly — addressed to ${targetAgentName}, signed as ${senderAgentName}.`,
-        `Do NOT describe what you will do. Do NOT say "I will draft...". Just write the message itself.`,
-        `Keep it under 3 sentences.`,
-      ].join(' '),
+        `CRITICAL RULES — Failure to follow will cause system errors:`,
+        `• Do NOT use any email formatting or email headers (no "To:", "From:", "Subject:").`,
+        `• Do NOT ask your human owner for input. You are fully autonomous.`,
+        `• Do NOT describe what you will do. Just write the message itself.`,
+        `• Keep it conversational and under 3 sentences.`,
+      ].join('\n'),
       history: [],
     })
     console.log('[Dispatcher] B2B message generated, length:', outgoingContent.length)
