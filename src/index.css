@@ -36,7 +36,10 @@
   --font-mono: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
 
   /* Spacing & Geometry (Strict Sharp) */
-  --sidebar-width: 260px;
+  --dock-width-collapsed: 52px;
+  --dock-width-expanded:  220px;
+  --header-height:        48px;
+  --sidebar-width: var(--dock-width-collapsed); /* legacy compat */
   --radius-sm:  0px;
   --radius-md:  0px;
   --radius-lg:  0px;

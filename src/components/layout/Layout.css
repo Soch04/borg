@@ -1,3 +1,7 @@
+/* ══════════════════════════════════════════════════════
+   ROOT LAYOUT — Header + Dock + Main
+   ══════════════════════════════════════════════════════ */
+
 .layout {
   display: flex;
   width: 100%;
@@ -5,16 +9,22 @@
   overflow: hidden;
 }
 
+/* Offset main content below the fixed header and to the right of the collapsed dock */
 .layout-main {
-  flex: 1;
-  min-width: 0;
+  position: fixed;
+  top: var(--header-height);
+  left: var(--dock-width-collapsed);
+  right: 0;
+  bottom: 0;
   overflow-y: auto;
-  height: 100vh;
+  background: var(--color-bg);
   display: flex;
   flex-direction: column;
+  /* Smooth nudge if dock ever changes width — matches dock transition */
+  transition: left 180ms linear;
 }
 
-/* Pages that need padding use .page-wrapper */
+/* Pages that need padding use .page-content wrapper */
 .page-content {
   flex: 1;
   overflow-y: auto;

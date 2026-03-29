@@ -1,0 +1,173 @@
+/* ══════════════════════════════════════════════════════
+   APP HEADER — Microsoft Fluent Industrial Style
+   Fixed top bar: 48px, sharp edges, 1px border-bottom
+   ══════════════════════════════════════════════════════ */
+
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem 0 0;
+  z-index: 200;
+  flex-shrink: 0;
+}
+
+/* ── Brand ── */
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  height: 100%;
+  padding: 0 1rem;
+  border-right: 1px solid var(--color-border);
+  width: var(--dock-width-collapsed);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.header-brand-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.header-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.header-brand-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.header-brand-sub {
+  font-size: 0.5625rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* ── Right Suite ── */
+.header-suite {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 100%;
+}
+
+/* ── Status Glyph ── */
+.header-status-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.header-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 0; /* Sharp square — zero vibe */
+  display: block;
+  flex-shrink: 0;
+}
+
+.header-status-tooltip {
+  position: absolute;
+  bottom: calc(-100% - 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  color: var(--text-primary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 2px 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  z-index: 300;
+}
+
+.header-status-wrap:hover .header-status-tooltip {
+  opacity: 1;
+}
+
+/* ── User Info ── */
+.header-user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.header-user-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.header-user-tag {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ── Avatar ── */
+.header-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 0;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+}
+
+/* ── Logout Button ── */
+.header-logout-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all var(--transition-fast);
+  border-radius: 0;
+  margin-left: 0.25rem;
+}
+
+.header-logout-btn:hover {
+  background: var(--color-danger);
+  color: #fff;
+  border-color: var(--color-danger);
+}
