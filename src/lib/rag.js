@@ -134,15 +134,17 @@ export async function ingestDocument(orgId, doc) {
  * @param {string} orgId - Namespace
  * @param {string} queryText - User question
  * @param {Object} filters - e.g. { department: 'Engineering', is_approved: true }
+ * @param {number} [topK=5] - Number of chunks to retrieve. Caller can override based
+ *   on query intent: topK=8 for analytical queries, topK=4 for procedural queries.
  * @returns {Promise<Array>}
  */
-export async function queryKnowledgeBase(orgId, queryText, filters = {}) {
+export async function queryKnowledgeBase(orgId, queryText, filters = {}, topK = 5) {
   const index = getPinecone().index(getPineconeIndex()).namespace(orgId);
   const queryVector = await generateEmbedding(queryText);
 
   const results = await index.query({
     vector: queryVector,
-    topK: 5,
+    topK,
     includeMetadata: true,
     filter: filters, // Metadata-level filter for is_approved and department
   });
