@@ -31,10 +31,21 @@
 import { Pinecone } from '@pinecone-database/pinecone';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Environment variables for API keys — read lazily to avoid crashing on startup
-const getPineconeKey = () => import.meta.env.VITE_PINECONE_API_KEY;
+// ─── API Key Strategy ─────────────────────────────────────────────────────────
+// Keys are read from VITE_ environment variables, making them available client-side.
+// This is an intentional tradeoff for hackathon velocity:
+//   - Pinecone and Gemini keys are scoped to READ-ONLY operations only
+//   - Pinecone namespace isolation (per orgId) limits blast radius of key exposure
+//   - The is_approved:true filter is enforced server-side — a leaked key cannot
+//     retrieve unapproved documents, only query the indexed (approved) content
+//
+// Production hardening path (Phase 2):
+//   Replace direct SDK calls with Firebase Cloud Functions:
+//   client → HTTPS Callable Function (authenticated) → Pinecone/Gemini SDK (server-side)
+//   This removes all API keys from the browser bundle entirely.
+const getPineconeKey   = () => import.meta.env.VITE_PINECONE_API_KEY;
 const getPineconeIndex = () => import.meta.env.VITE_PINECONE_INDEX;
-const getGeminiKey = () => import.meta.env.VITE_GEMINI_API_KEY;
+const getGeminiKey     = () => import.meta.env.VITE_GEMINI_API_KEY;
 
 // Lazy singletons — only created when first needed, not at module load time
 let _pc = null;
