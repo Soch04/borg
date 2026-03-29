@@ -13,10 +13,14 @@ import { ingestDocument } from '../lib/rag'
 import { db } from '../firebase/config'
 import { getDoc, doc } from 'firebase/firestore'
 import {
-  RiShieldLine, RiArrowLeftRightLine, RiDatabase2Line,
+  RiArrowLeftRightLine, RiDatabase2Line,
   RiRobot2Line, RiCheckLine, RiCloseLine,
-  RiFilterLine, RiGroupLine, RiPulseLine, RiBuildingLine
+  RiFilterLine, RiGroupLine, RiPulseLine
 } from 'react-icons/ri'
+import {
+  IconAdmin, IconActiveMembers, IconDocsApproved,
+  IconPendingReview, IconDepartments, IconMyAgent,
+} from '../components/icons/icons'
 import './AdminDashboard.css'
 
 const TABS = [
@@ -96,7 +100,7 @@ export default function AdminDashboard() {
         <div className="admin-header">
           <div className="admin-badge-wrap">
             <div className="admin-header-icon">
-              <RiShieldLine />
+              <IconAdmin />
             </div>
             <div>
               <h1>Admin Dashboard</h1>
@@ -188,15 +192,15 @@ function OverviewTab({ currentOrg, orgData, members }) {
   return (
     <div className="overview-grid animate-fade-in">
       {[
-        { label: 'Total Members',    value: totalAgents,   icon: '🤖', color: 'var(--color-accent)' },
-        { label: 'Active Members',   value: activeAgents,  icon: '✅', color: 'var(--color-success)' },
-        { label: 'Docs Approved',    value: approvedDocs,  icon: '📚', color: 'var(--color-accent-2)' },
-        { label: 'Pending Review',   value: pendingDocs,   icon: '⏳', color: 'var(--color-warning)' },
-        { label: 'Departments',      value: deptCount,     icon: '🏢', color: 'var(--color-bot)' },
-      ].map(({ label, value, icon, color }) => (
+        { label: 'Total Members',  value: totalAgents,  Icon: IconMyAgent,       color: 'var(--color-accent)'   },
+        { label: 'Active Members', value: activeAgents, Icon: IconActiveMembers, color: 'var(--color-success)'  },
+        { label: 'Docs Approved',  value: approvedDocs, Icon: IconDocsApproved,  color: 'var(--color-accent-2)' },
+        { label: 'Pending Review', value: pendingDocs,  Icon: IconPendingReview, color: 'var(--color-warning)'  },
+        { label: 'Departments',    value: deptCount,    Icon: IconDepartments,   color: 'var(--color-bot)'      },
+      ].map(({ label, value, Icon, color }) => (
         <div key={label} className="stat-card card card-hover">
           <div className="stat-card-icon" style={{ '--stat-color': color }}>
-            {icon}
+            <Icon width="28" height="28" style={{ color }} />
           </div>
           <div className="stat-card-value">{value.toLocaleString()}</div>
           <div className="stat-card-label">{label}</div>
@@ -206,7 +210,7 @@ function OverviewTab({ currentOrg, orgData, members }) {
       {/* Department Management */}
       <div className="card dept-mgmt-card animate-fade-in">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '1rem' }}>
-          <RiBuildingLine style={{ fontSize: '1.25rem', color: 'var(--color-accent)' }} />
+          <IconDepartments style={{ width: '1.25rem', height: '1.25rem', color: 'var(--color-accent)' }} />
           <h3>Department Tags</h3>
         </div>
         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>

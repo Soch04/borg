@@ -1,18 +1,18 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { HIDE_ORG_DATA_UI } from '../../context/AppConfig'
+import { RiSunLine, RiMoonLine } from 'react-icons/ri'
 import {
-  RiMessage3Line, RiRobot2Line, RiUser3Line,
-  RiBuildingLine, RiShieldLine,
-  RiSunLine, RiMoonLine,
-} from 'react-icons/ri'
+  IconQuery, IconMyAgent, IconProfile,
+  IconOrganization, IconAdmin,
+} from '../icons/icons'
 import './Dock.css'
 
 const baseNavItems = [
-  { to: '/messaging',    icon: RiMessage3Line, label: 'Query'        },
-  { to: '/bot-settings', icon: RiRobot2Line,   label: 'My Agent'    },
-  { to: '/profile',      icon: RiUser3Line,    label: 'Profile'     },
-  { to: '/org',          icon: RiBuildingLine, label: 'Organization', hidden: HIDE_ORG_DATA_UI },
+  { to: '/messaging',    icon: IconQuery,        label: 'Query'        },
+  { to: '/bot-settings', icon: IconMyAgent,      label: 'My Agent'    },
+  { to: '/profile',      icon: IconProfile,      label: 'Profile'     },
+  { to: '/org',          icon: IconOrganization, label: 'Organization', hidden: HIDE_ORG_DATA_UI },
 ]
 
 const navItems = baseNavItems.filter(item => !item.hidden)
@@ -46,7 +46,7 @@ export default function Dock() {
               id="nav-admin-dashboard"
               title="Admin Dashboard"
             >
-              <RiShieldLine className="dock-icon" aria-hidden="true" />
+              <IconAdmin className="dock-icon" aria-hidden="true" />
               <span className="dock-label">Admin</span>
             </NavLink>
           </>
