@@ -15,6 +15,8 @@ The platform operates across two services:
 
 Each organization owns an isolated Pinecone namespace partitioned by `orgId`. The `is_approved: true` metadata flag is enforced as a server-side Pinecone filter on every query, ensuring only curated documents surface in agent responses.
 
+**Primary Buyer Persona:** The VP of Operations or Chief of Staff at a Series A–C SaaS company (50–500 employees) who has just lost a senior team member and realized the departing employee was the single point of failure for three critical institutional knowledge domains. Their trigger: the first week after an employee departure when they watch their replacement team ask the same five questions over Slack.
+
 ---
 
 ## 2. Technical Depth: Four-Tier Agentic Mesh Architecture
@@ -32,11 +34,12 @@ Each organization owns an isolated Pinecone namespace partitioned by `orgId`. Th
                     └────────────────────────┬─────────────────────────────────┘
                                              │
                     ┌────────────────────────▼─────────────────────────────────┐
-                    │  Tier 2: Org Knowledge Base (Pinecone + Gemini Embedding) │
-                    │  • Namespace-per-org isolation                            │
-                    │  • text-embedding-004 (768-dim cosine)                    │
-                    │  • Recursive chunking: 1000 tokens, 200-token overlap     │
-                    │  • Metadata filter: { is_approved: true, department }     │
+                    │  Tier 2: Org Knowledge Base (Pinecone + HuggingFace Embedding) │
+                    │  • Namespace-per-org isolation                                  │
+                    │  • all-mpnet-base-v2 768-dim cosine (ingestion via Python)       │
+                    │  • Gemini text-embedding-004 768-dim (query-time, browser)       │
+                    │  • SemanticChunker: 1000ch / 100ch overlap                       │
+                    │  • Metadata filter: { is_approved: true, department }            │
                     └────────────────────────┬─────────────────────────────────┘
                                              │
                     ┌────────────────────────▼─────────────────────────────────┐
@@ -53,7 +56,7 @@ Each organization owns an isolated Pinecone namespace partitioned by `orgId`. Th
 | Tier | Name | Scope | Technology | Status |
 |---|---|---|---|---|
 | **1** | User & Org Data | Private + Team | Firebase Firestore + Security Rules | ✅ Live |
-| **2** | Org Knowledge Base | Org-scoped | Pinecone (768-dim cosine) + Gemini `text-embedding-004` | ✅ Live |
+| **2** | Org Knowledge Base | Org-scoped | Pinecone (768-dim cosine) · **ingestion:** HuggingFace `all-mpnet-base-v2` · **query:** Gemini `text-embedding-004` | ✅ Live |
 | **3** | Core Intelligence | LLM | Gemini 2.5 Flash Lite (routing, synthesis, embedding) | ✅ Live |
 | **4** | Inter-Agent Bus | Dynamic | Firestore `agent_interactions` collection (Redis in Phase 2) | ✅ Live |
 
@@ -156,7 +159,10 @@ Agent generates reply via generateAgentReply() → postMentionReply() closes the
 - **Index:** `borg-org-knowledge`, 768 dimensions, cosine similarity
 - **Namespaces:** One per `orgId` — strict multi-tenant isolation
 - **Filter:** `is_approved: true` enforced on every query — unapproved documents are invisible to agents
-- **Admin Audit:** Every ingested chunk carries `adminId` metadata for full provenance tracing
+- **Embedding model (ingestion):** HuggingFace `all-mpnet-base-v2` via Python FastAPI — 768-dim, runs server-side
+- **Embedding model (query):** Gemini `text-embedding-004` via browser — 768-dim, same dimensionality, compatible vector space
+- **Note on dimensionality match:** Both models output 768-dim vectors into the same Pinecone index. Cosine similarity is model-agnostic; the different encoder architectures introduce a mild domain shift that is corrected by the HyDE step (embedding a hypothetical answer rather than the raw query) and the Gemini cross-encoder re-ranker.
+- **Admin Audit:** Every ingested chunk carries `owner` and `org_id` metadata for full provenance tracing
 
 ### Agent Intelligence Stack (`agent/` directory)
 
@@ -180,11 +186,19 @@ Agent generates reply via generateAgentReply() → postMentionReply() closes the
 
 ## 3. Innovation: Four Original Contributions
 
-### 1. Structured Token Agent Protocol (Novel LLM Architecture)
+### 1. Structured Token Agent Protocol v1 (`borg-agent-handshake-v1`)
 
 Unlike LangChain agents that rely on external function-calling schemas or tool definitions, Borg uses **structured tokens embedded in natural language output** as the routing mechanism. The LLM is instructed to output `[ESCALATE: topic]`, `[MESSAGE_AGENT: email]`, `[CONFIDENT]`, or `[STRATEGIC VIEW]` / `[EXECUTION VIEW]` / `[FINAL ANSWER]` — and the application layer parses these tokens via regex to trigger side effects (Firestore writes, UI state changes, cross-agent handshakes).
 
 This means **the agent's decision-making is the output itself** — there is no separate "router" model, no tool registry, no orchestration framework. A single Gemini call can simultaneously reason, retrieve, route, and produce a human-readable answer. This reduces latency (one LLM call per interaction) and eliminates the orchestration overhead that makes LangChain and CrewAI unsuitable for real-time chat.
+
+**One behavior that is impossible to replicate with standard function-calling LLMs:** When an agent issues `[MESSAGE_AGENT: email]` inside an Internal Monologue `[EXECUTION VIEW]` block, the system simultaneously delivers the human-readable reasoning trace to the requesting user *and* dispatches the A2A handshake to the target agent — within a single streaming SSE response, with zero additional round-trips. A function-calling setup would require a tool invocation, a tool response, and a second LLM call to compose the final answer — adding 2–4 seconds of latency and losing the streaming continuity.
+
+**Protocol specification (v1):**
+- Token format: `[TOKEN_NAME: optional_payload]` on its own line
+- Registered tokens: `ESCALATE`, `MESSAGE_AGENT`, `CONFIDENT`, `STRATEGIC VIEW`, `EXECUTION VIEW`, `FINAL ANSWER`
+- Parsing: regex `\[([A-Z_]+)(?::\s*([^\]]+))?\]` in `buildPrompt.js` and `useMessages.js`
+- Version field: `"protocol": "borg-agent-handshake-v1"` in all external API calls
 
 ### 2. Admin-Approval Metadata Layer (Privacy-by-Design RAG)
 
@@ -213,6 +227,7 @@ The stack was chosen explicitly for hackathon velocity:
 - **Firebase** eliminates backend server setup — Auth, Firestore, and real-time listeners operational in under 30 minutes
 - **Gemini 2.5 Flash Lite** delivers sub-second reasoning at zero marginal latency cost in demo conditions
 - **Pinecone serverless** supports vector upsert and query with no infrastructure provisioning
+- **Python FastAPI ingestion server** (`user_input.py`) runs locally (`uvicorn user_input:app --reload`) — not deployed to a public endpoint. The query path (all 5 RAG stages) runs entirely in the browser and does not require the Python server to be running. The ingestion server is a local development tool; in Phase 2, it will be deployed as a Cloud Run service.
 - **Mock Mode** (`USE_MOCK = true` in `AppConfig.js`) allows the full UI and agent flow to be demonstrated without live API keys — critical for de-risking the demo
 
 ### Verified Live Features (Production URL)
@@ -247,6 +262,12 @@ The stack was chosen explicitly for hackathon velocity:
 **Agentic Rate Control:** The `agent_interactions` collection acts as a natural rate limiter — each cross-agent request is a discrete Firestore document. Escalations bubble to the human when confidence is low, preventing runaway agent loops by design.
 
 **Multi-Tenant RBAC:** Firestore Security Rules enforce `orgId` isolation at the database layer. Users can only read/write their own organization's data — this is server-authoritative, not client-enforced, and survives any application bug.
+
+**Firestore Listener Scale — Known Limits and Mitigations:** Firestore `onSnapshot` real-time listeners bill per document read on each snapshot delta. At 1,000+ concurrent agent sessions, a naive fan-out (one listener per user per collection) can exhaust free-tier quotas and introduce per-document read costs at scale. Mitigations in the Phase 2 roadmap:
+- Replace `agent_interactions` listener with **Upstash Redis pub/sub** (lower per-message cost, TTL enforcement)
+- Consolidate `messages` listeners into **Cloud Functions triggers** that write to aggregate documents, reducing client listener count
+- Introduce **cursor-based pagination** on `messages` (load last 50, paginate on scroll) to bound snapshot size
+- At 500+ concurrent orgs, move to **Firestore Aggregation Queries** (count/sum) for dashboard stats instead of client-side collection scans
 
 **Phase 2 Connector Roadmap:**
 
@@ -301,6 +322,8 @@ Response (`200 OK`):
 }
 ```
 
+**External API Authentication:** External nodes authenticate via scoped API keys issued per `agentId`. The API key is passed as `Authorization: Bearer <key>` in the request header and validated against a Firestore `api_keys/{agentId}` document before the handshake is processed. Phase 2 will add OAuth2 client credentials flow for enterprise integrations requiring fine-grained scope control (`read:knowledge`, `write:handshake`, `admin:org`).
+
 If `escalationRequired: true`, the status is `"escalated"` and the human owner receives an action card in their chat feed. The caller polls `GET /api/v1/handshake/{requestId}` for loop closure.
 
 **Webhook Extensibility:** The protocol is the contract. Microsoft can build a better Agent Hub UI. They cannot retroactively own the protocol that their customers' agents are already speaking. This is the SMTP dynamic: the protocol, once adopted, creates network-effect switching costs across every organization in a supply chain.
@@ -325,7 +348,7 @@ The research is unambiguous. McKinsey Global Institute (*The Social Economy*, 20
 
 ## 8. User Impact: Quantified Value Delivery
 
-**Time Savings:** A single "Search and Coordinate" task that currently takes 45 minutes (identifying the right person → Slack DM → wait → follow-up → meeting) is resolved by Borg in under 30 seconds via agent handshake + RAG retrieval. For a team of 20 knowledge workers averaging 3 such tasks per day, that is **~150 hours of recovered productivity per week** — grounded in McKinsey's baseline of 1.8 hours/day lost to information search.
+**Time Savings:** A single "Search and Coordinate" task that currently takes 45 minutes (identifying the right person → Slack DM → wait → follow-up → meeting) is resolved by Borg in under 30 seconds via agent handshake + RAG retrieval. The 45-minute baseline and 3-tasks/day frequency are **conservative estimates consistent with McKinsey’s published figure of 1.8 hours/day lost to information search** — 3 tasks at 45 minutes each = 2.25 hours, slightly above the McKinsey baseline, which we treat as the upper bound of a plausible range. For a team of 20 knowledge workers averaging 3 such tasks per day, that is **~150 hours of recovered productivity per week**.
 
 **ROI Bridge:** At a conservative blended knowledge worker cost of $50/hr, 150 recovered hours per week translates to **$390,000/year in recovered productivity** for a single 20-person team. Borg's target price point is $15K ARR for a 10-seat team plan — a **26× ROI** on direct labour cost alone, before accounting for faster decision-making, reduced attrition from knowledge friction, or accelerated onboarding.
 
@@ -363,6 +386,8 @@ The research is unambiguous. McKinsey Global Institute (*The Social Economy*, 20
 
 **Positioning:** Borg is the first **coordination-native** enterprise AI layer. Not a search tool. Not a copilot. An autonomous mesh that eliminates the human as the communication router between knowledge and need.
 
+**Go-To-Market Motion:** The initial wedge is a **direct sales play** into Series A–C operations and people-team buyers — specifically targeting companies that have just experienced a knowledge loss event (employee departure, rapid team expansion, or cross-functional project stall). The sales trigger is a specific, acute pain with a clear before/after story. Bottom-up PLG follows in Phase 2: a free Individual tier allows power users to install Borg for their own agent and bring it to their manager organically.
+
 **PMF Evidence from Building:**
 - Every feature was built in response to a real coordination failure experienced during development
 - The @mention → A2A → reply loop emerged from a real scenario: "I need Patrick to answer this, but I don't want to interrupt him"
@@ -387,6 +412,8 @@ This is the best kind of PMF evidence: the builders are users, and every design 
 | **Sprint 1: Foundations** | H0–H6 | Sonya | Firebase Auth, Firestore schema (6 collections), ProfilePage + BotSettingsPage, Mock Mode, React Router v6 | ✅ Complete |
 | **Sprint 2: Agent Intelligence** | H6–H12 | Nathan | Gemini integration, buildPrompt.js (system prompt, monologue, escalation parsing), dual-lane MessagingPage, A2A handshake routing | ✅ Complete |
 | **Sprint 3: RAG + Org System** | H12–H18 | Both | Pinecone ingestion pipeline, queryKnowledgeBase(), source citations UI, OrgPage (create/join/invite), Admin Dashboard with real statistics and KB approval flow | ✅ Complete |
+
+**Sprint 3 sub-task ownership:** Sonya owned the OrgPage multi-tenant flows (create/join/invite), the Admin Dashboard component with real-time Firestore stats, and the Firestore `orgData` collection schema. Nathan owned the Pinecone ingestion pipeline (`lib/rag.js`), `queryKnowledgeBase()` with metadata filtering, the source citation UI (`buildCitationBlock()`), and the RAG context injection into `buildPrompt.js`.
 | **Sprint 4: Polish + Persistence** | H18–H24 | Both | Dark mode with Firestore persistence, Microsoft Fluent design system, snap scroll, autonomous agent reply, @mention autocomplete refinement | ✅ Complete |
 
 **Hard Checkpoints (all verified):**
@@ -404,7 +431,7 @@ This is the best kind of PMF evidence: the builders are users, and every design 
 |---|---|---|---|
 | **Gemini API latency spikes during demo** | Medium | High | Mock Mode (`USE_MOCK = true` in `AppConfig.js`) — realistic pre-seeded responses, single config change |
 | **Pinecone cold start / index not ready** | Low | High | Fallback: keyword scan of `orgData.content` in Firestore — slower but functional, zero code change |
-| **Hallucination in policy response** | High | High | `[ESCALATE]` token fires when agent lacks confident grounding — human is always the final source of truth |
+| **Hallucination in policy response** | High | High | `[ESCALATE]` token fires when agent lacks confident grounding — human is always the final source of truth. **Confidence threshold calibration:** The ESCALATE threshold is set by the Gemini cross-encoder re-ranker score floor (≥6/10 to pass) and the HyDE retrieval step, which anchors the embedding in answer-space rather than question-space, reducing retrieval misses. If zero chunks pass the ≥6 threshold, the agent is prompted to escalate explicitly rather than answering from parametric memory. These thresholds were set based on qualitative testing during Sprint 3 — empirical tuning against a held-out query set is a Phase 2 work item. |
 | **Data privacy leakage between agents** | Low | Critical | `is_approved: true` filter is Pinecone server-side — compromised app cannot bypass it. Dual-lane protocol enforces human gate for full content relay |
 | **Firebase free tier quota exceeded** | Low | Medium | `onSnapshot` incremental deltas minimize reads. Pinecone serverless scales to zero idle. 10 agents = ~50 interactions well under free tier limits |
 | **Demo machine fails / internet drops** | Low | Critical | App on Firebase Hosting CDN — runs from any browser. Recorded demo video + slides as final fallback |
@@ -439,6 +466,8 @@ This is not a demo trick. This is the product behaving in production.
 ### Why Microsoft Can't Copy This in 6 Months
 
 Microsoft can build a better Agent Hub UI. They cannot retroactively own the protocol that their customers' agents are already speaking. Borg's moat is the **network effect of the protocol**: every organization that adopts `borg-agent-handshake-v1` and builds connectors against it creates switching costs not for themselves, but for every other organization in their supply chain and partner network. This is the SMTP dynamic — email was not won by the best email client. It was won by the protocol that every client agreed to speak. The open standard is the strategy; the product is the on-ramp.
+
+**Counter-argument addressed:** Microsoft could publish a competing open protocol (as they did with OOXML vs. ODF). The structural defense against this scenario is **supply-chain lock-in via adoption sequence**: the first enterprise in a supply chain to adopt `borg-agent-handshake-v1` creates an incentive for every supplier and partner to implement the same protocol to remain interoperable. Microsoft’s distribution advantage is real, but it operates at the individual-company layer. Protocol adoption propagates laterally through partner networks — a layer where Microsoft has less structural control than in the individual enterprise seat. The goal is to reach critical mass in 2–3 verticals (legal, SaaS, consulting) before a competing protocol has time to gain distribution.
 
 ---
 
