@@ -127,3 +127,188 @@ export function formatFirestoreError(err) {
   }
   return msgs[code] ?? err?.message ?? 'An unexpected error occurred.'
 }
+
+// ─── Circuit Breaker ──────────────────────────────────────────────────────────
+//
+// PROBLEM:
+//   When the Gemini API is degraded, every in-flight request piles up and waits
+//   for a timeout. Under sustained failure, this creates a cascade: the client
+//   fires dozens of retries, exhausts its quota faster, and makes recovery slower.
+//
+// SOLUTION — three-state circuit breaker:
+//   CLOSED  → normal operation, failures are counted
+//   OPEN    → fast-fail all calls immediately, no network round-trip
+//   HALF_OPEN → test probe: one call allowed through; if it succeeds, reset to
+//               CLOSED; if it fails, reset OPEN timer and stay OPEN
+//
+// USAGE:
+//   const circuit = getCircuit('gemini')
+//   const result  = await circuit.call(() => callGemini(prompt, history))
+//
+//   if (circuit.isOpen()) {
+//     // Show degraded-mode UI before attempting the call
+//   }
+//
+// DESIGN:
+//   Circuits are keyed by name and stored as module-level singletons so that
+//   every import site shares the same state — a burst of failures in gemini.js
+//   will trip the circuit for ragReranker.js immediately without additional
+//   coordination. The registry is intentionally not exported to prevent external
+//   mutation; use getCircuit(name) as the only factory.
+//
+/**
+ * @typedef {'CLOSED' | 'OPEN' | 'HALF_OPEN'} CircuitState
+ */
+
+/**
+ * @typedef {Object} CircuitBreakerOptions
+ * @property {number} [failureThreshold=3]  - Consecutive failures before tripping open
+ * @property {number} [successThreshold=1]  - Consecutive successes in HALF_OPEN before closing
+ * @property {number} [timeoutMs=30000]     - Time OPEN before allowing a probe (ms)
+ * @property {string} [name='default']      - Circuit name for logging
+ */
+
+export class CircuitBreaker {
+  /**
+   * @param {CircuitBreakerOptions} [opts]
+   */
+  constructor(opts = {}) {
+    this.name             = opts.name             ?? 'default'
+    this.failureThreshold = opts.failureThreshold ?? 3
+    this.successThreshold = opts.successThreshold ?? 1
+    this.timeoutMs        = opts.timeoutMs        ?? 30_000
+
+    /** @type {CircuitState} */
+    this._state           = 'CLOSED'
+    this._failures        = 0
+    this._successes       = 0
+    this._lastFailureTime = null
+  }
+
+  /** @returns {CircuitState} */
+  get state() {
+    // Automatically transition OPEN → HALF_OPEN if the timeout has elapsed
+    if (
+      this._state === 'OPEN' &&
+      this._lastFailureTime !== null &&
+      Date.now() - this._lastFailureTime >= this.timeoutMs
+    ) {
+      this._state    = 'HALF_OPEN'
+      this._failures = 0
+      console.log(`[Borg Circuit:${this.name}] OPEN → HALF_OPEN — probe allowed`)
+    }
+    return this._state
+  }
+
+  /** @returns {boolean} True if the circuit is OPEN (fast-fail mode) */
+  isOpen() {
+    return this.state === 'OPEN'
+  }
+
+  /**
+   * Execute a function through the circuit breaker.
+   * Throws immediately if the circuit is OPEN.
+   * Records the outcome and adjusts circuit state accordingly.
+   *
+   * @template T
+   * @param {() => Promise<T>} fn - The async call to protect
+   * @returns {Promise<T>}
+   * @throws {Error} FastFailError if circuit is OPEN, or the original error if the call fails
+   */
+  async call(fn) {
+    const currentState = this.state
+
+    if (currentState === 'OPEN') {
+      const ms = Math.max(0, this.timeoutMs - (Date.now() - this._lastFailureTime))
+      throw new Error(
+        `[Borg Circuit:${this.name}] OPEN — fast-failing. Retry in ${Math.ceil(ms / 1000)}s`
+      )
+    }
+
+    try {
+      const result = await fn()
+      this._onSuccess()
+      return result
+    } catch (err) {
+      this._onFailure(err)
+      throw err
+    }
+  }
+
+  /** Record a successful call */
+  _onSuccess() {
+    this._failures = 0
+    if (this._state === 'HALF_OPEN') {
+      this._successes++
+      if (this._successes >= this.successThreshold) {
+        this._state    = 'CLOSED'
+        this._successes = 0
+        console.log(`[Borg Circuit:${this.name}] HALF_OPEN → CLOSED — recovered`)
+      }
+    }
+  }
+
+  /** Record a failed call and potentially trip the circuit */
+  _onFailure(err) {
+    this._failures++
+    this._lastFailureTime = Date.now()
+    this._successes       = 0
+
+    if (this._state === 'HALF_OPEN' || this._failures >= this.failureThreshold) {
+      this._state = 'OPEN'
+      console.warn(
+        `[Borg Circuit:${this.name}] TRIPPED OPEN after ${this._failures} failures. ` +
+        `Last error: ${err?.message ?? err}`
+      )
+    }
+  }
+
+  /**
+   * Manually reset the circuit to CLOSED state.
+   * Use after a confirmed infrastructure recovery.
+   */
+  reset() {
+    this._state           = 'CLOSED'
+    this._failures        = 0
+    this._successes       = 0
+    this._lastFailureTime = null
+    console.log(`[Borg Circuit:${this.name}] Manual reset → CLOSED`)
+  }
+
+  /** @returns {{ state: CircuitState, failures: number, lastFailureTime: number|null }} */
+  getStatus() {
+    return {
+      state:           this.state,
+      failures:        this._failures,
+      lastFailureTime: this._lastFailureTime,
+    }
+  }
+}
+
+/** Module-level circuit registry — shared across all import sites */
+const _circuits = new Map()
+
+/**
+ * Get or create a named circuit breaker.
+ * Circuits are singletons: the same name always returns the same instance.
+ *
+ * @param {string} name
+ * @param {CircuitBreakerOptions} [opts] - Only applied on first creation
+ * @returns {CircuitBreaker}
+ */
+export function getCircuit(name, opts = {}) {
+  if (!_circuits.has(name)) {
+    _circuits.set(name, new CircuitBreaker({ name, ...opts }))
+  }
+  return _circuits.get(name)
+}
+
+/**
+ * Pre-configured circuits for the two external services Borg depends on.
+ * Import these instead of calling getCircuit() for guaranteed consistent config.
+ *
+ * geminiCircuit  — trips after 3 consecutive Gemini API failures, resets after 30s
+ * pineconeCircuit — trips after 3 consecutive Pinecone failures, resets after 45s
+ */
+export const geminiCircuit  = getCircuit('gemini',  { failureThreshold: 3, timeoutMs: 30_000 })
+export const pineconeCircuit = getCircuit('pinecone', { failureThreshold: 3, timeoutMs: 45_000 })
