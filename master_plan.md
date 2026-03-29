@@ -1,65 +1,61 @@
 # Master Plan: Project Borg
 
-## 1. Vision Clarity: The "Post-Communication" Organization
-**Borg** is a revolutionary AI agent network that eliminates the friction of human-to-human coordination. Our North Star is an organization where employees focus exclusively on high-value creative and strategic work, while their dedicated AI proxies handle the "glue work"—scheduling, information retrieval, cross-departmental updates, and routine inquiries. In the Borg ecosystem, you don't "send an email"; your intent is captured, and your agent negotiates the outcome with the relevant peers autonomously.
+## 1. Vision Clarity
+**North Star:** Project Borg is a revolutionary AI agent network that eliminates the friction of human-to-human coordination in organizations. Our compelling direction is to create a "Post-Communication" workspace where employees focus entirely on high-value creative and strategic work, while their dedicated AI proxies handle all "glue work" (scheduling, information retrieval, cross-departmental updates, and routine inquiries). In our ecosystem, you do not "send an email" or "ping someone on Slack"; you express an intent, and your agent autonomously negotiates the outcome with relevant peer agents.
 
-## 2. Technical Depth: The Quad-Tier Architecture
-The system is built on a distributed agent architecture using a Four-Tier Data Model:
+## 2. Technical Depth
+The system utilizes a distributed agent architecture built on a modern, robust tech stack:
+- **Frontend:** React with Vite, styled with custom CSS for a premium, dynamic interface.
+- **Authentication & Backend:** Firebase for secure user management and real-time database capabilities.
+- **RAG Pipeline (Tier 2/Org Data):** Pinecone vector database combined with Google Generative AI embeddings for deep organizational knowledge retrieval.
+- **Core Intelligence (Tier 3):** Gemini 2.0 Flash / Pro models driving the reasoning, logic, and agentic planning engines.
+- **Data Model:** A four-tier architecture separating Private User Data (Tier 1), Global Org Data (Tier 2), Core Intel (Tier 3), and Inter-Agent state (Tier 4).
 
-| Layer | Type | Description | Technology |
-| :--- | :--- | :--- | :--- |
-| **Tier 1: User Data** | Private | Personality, private docs, calendar, local memory. | SQLite (Local) / Vector Embeddings |
-| **Tier 2: Org Data** | Global | Handbooks, policies, SOPs, shared knowledge. | Pinecone / Weaviate (RAG) |
-| **Tier 3: Core Intel** | Base Model | Reasoning, logic, agentic planning. | Gemini 2.0 Flash / Pro |
-| **Tier 4: Inter-Agent** | Dynamic | Real-time departmental status, peer availability. | Redis / NATS (Pub-Sub) |
+## 3. Innovation
+Unlike traditional Retrieval-Augmented Generation (RAG) chatbots that simply answer questions, Borg agents act as **Autonomous Proxies**. 
+- **Novel Approach:** The system operates on a "User-to-Bot Only" constraint. It treats the organization as a programmable network rather than a chaotic chat room.
+- **Beyond Tutorials:** Rather than a simple ChatGPT wrapper, Borg implements a multi-agent orchestration layer where AI agents proactively monitor "Inter-Agent Intelligence" and negotiate outcomes with each other without human intervention.
 
-### System Logic
-- **Routing Engine**: Uses semantic similarity to map user intent to specific bots or departments.
-- **Negotiation Protocol**: Agents use constrained optimization for scheduling (e.g., "Find 30m when both users are free but prioritize User A's deep work block").
+## 4. Feasibility
+To execute this ambitious vision within 24 hours, the scope is tightly managed:
+- **Hours 0-6:** Firebase Auth setup, core API integration, and Pinecone RAG Pipeline for organizational data.
+- **Hours 6-12:** Multi-agent interaction loop using Gemini models via `@google/generative-ai`.
+- **Hours 12-18:** Frontend implementation including specific interactive views (`ProfilePage`, `MessagingPage`, `BotSettingsPage`).
+- **Hours 18-24:** Final testing of Live Negotiation logic, robust error handling, documentation, and live deployment.
 
-## 3. Innovation: From Chatbots to Proxy Agents
-Unlike traditional RAG systems that just answer questions, Borg agents act as **Proxies**. 
-- **Novelty**: The "User-to-Bot Only" constraint creates a clean separation of concerns. It treats the organization as a programmable network rather than a chaotic chat room.
-- **Autonomous Lifecycle**: Agents don't just wait for prompts; they monitor "Inter-Agent Intelligence" to proactively notify users of relevant organizational shifts.
+## 5. Scalability Design
+- **Architecture Beyond Demo:** While the hackathon prototype runs centralized, the conceptual architecture uses horizontal scaling where each user's proxy bot is isolated.
+- **Compute Efficiency:** Intelligent routing uses Gemini Flash for fast, low-cost API sorting, delegating only complex synthesis to Gemini Pro.
+- **Decentralization:** As the network grows, Inter-Agent communication will migrate from a central pub-sub to a federated, decentralized mesh.
 
-## 4. Feasibility: The 24-Hour Build
-To achieve an execution-ready demo within the hackathon window:
-- **Phase 1 (Hours 0-6)**: Core API setup & RAG Pipeline for Org Data.
-- **Phase 2 (Hours 6-12)**: Multi-agent interaction loop using a centralized orchestrator (simplified for demo).
-- **Phase 3 (Hours 12-18)**: Frontend implementation (Profile, Dept Views, Global Chat).
-- **Phase 4 (Hours 18-24)**: Refinement and "Live Negotiation" demo script.
+## 6. Ecosystem Thinking
+Borg is designed as an API-first enterprise "System 1".
+- **Interoperability:** Architecture incorporates secure webhooks and modular integration layers to eventually connect with Google Workspace, Slack, and Jira.
+- **Extensibility:** The standard JSON-based "Agent Handshake API" protocol allows third-party customized bots to securely join the internal network and query authorized data.
 
-## 5. Scalability Design: Beyond the Demo
-- **Horizontal Scaling**: Each user bot can be containerized as a micro-service.
-- **Compute Efficiency**: Using Gemini 2.0 Flash for routing and Gemini 2.0 Pro for complex synthesis ensures a balance of speed and cost.
-- **Federated Memory**: As the org grows, Tier 4 (Inter-Agent) moves from a central bus to a decentralized mesh.
+## 7. Problem Definition
+The modern workforce is crippled by the "Coordination Tax" and "Hyper-Communication Fatigue."
+- **Specific Problem:** Knowledge workers spend up to 60% of their day on "work about work" (sync meetings, searching scattered knowledge bases, clarifying simple requests).
+- **Who Experiences It:** Project managers, executives, and cross-functional individual contributors who are constantly interrupted by notifications and unstructured requests.
 
-## 6. Ecosystem Thinking: API-First Extensibility
-Borg is designed to be the "System 1" of an enterprise.
-- **Interoperability**: Connectors for Google Workspace (Calendar/Drive), Slack (history import), and Jira.
-- **Agent Handshake API**: A standardized JSON protocol for bots to request information from one another, allowing 3rd party agents to join the network.
+## 8. User Impact
+- **Quantitative Benefit:** Reclaims an estimated 15-20 hours per week per employee by automating low-level coordination tasks.
+- **Qualitative Improvement:** Shifts company culture from "constant responsiveness" to "deep work and output." Reduces human error in information retrieval through precise, centralized Org RAG. 
 
-## 7. Problem Definition: The Coordination Tax
-Organizations suffer from "Hyper-Communication Fatigue." 
-- **The Problem**: Knowledge workers spend 60% of their time on "work about work" (meetings, searching for info, clarifying requests).
-- **Stakeholders**: Project managers, executives, and cross-functional teams who are currently drowning in Slack/Teams notifications.
+## 9. Market Awareness
+- **Competitive Landscape:** Prevailing tools like Slack or Microsoft Teams provide the pipes but require human effort to pump the data. Traditional "AI Assistants" (like Copilot) assist individual tasks but don't manage the organizational network.
+- **Positioning:** Borg sits above the communication noise layer. It is not an alternative to email—it is the replacement of manual organizational coordination logic.
 
-## 8. User Impact: Quantifiable Efficiency
-- **Time Reclaimed**: Estimated 15-20 hours/week/employee by automating coordination.
-- **Accuracy**: Reduced human error in data retrieval through centralized Org RAG.
-- **Culture**: Shifts the focus from "responsiveness" to "output."
+## 10. Team Execution Plan
+- **Backend/AI Lead:** Implements Pinecone RAG pipelines, Google Generative AI integration (`src/lib/rag.js`), and inter-agent logic.
+- **Frontend UI Lead:** Develops premium, responsive interfaces in React/Vite (`src/pages/*`) focusing on a seamless User-to-Proxy experience.
+- **Systems/Integration:** Manages Firebase auth (`src/firebase/auth.js`), database configurations, environment setup, and conducts integration testing of the scheduling negotiation loops.
 
-## 10. Team Execution Plan: 24-Hour Milestones
-- **Lead Architect**: API integration, RAG setup, Agent Logic.
-- **Frontend Lead**: React/Next.js UI (Dashboard, Profile, Real-time logs).
-- **Systems Lead**: Redis/Database management, Deployment, Auth.
-- **Integration Lead**: Testing the "Scheduling Negotiation" logic.
+## 11. Risk Assessment
+- **Risk:** Agent Looping (bots caught in an endless negotiation loop).
+  - *Contingency:* Implement strict Time-To-Live (TTL) tokens on inter-agent requests and a cost-ceiling circuit breaker per negotiation.
+- **Risk:** Privacy leakage between private user data (Tier 1) and global org data (Tier 2).
+  - *Contingency:* Strict context-injection boundaries in prompt engineering and database-level RBAC partitioning.
 
-## 11. Risk Assessment & Contingencies
-- **Risk**: Agent Looping (bots talking to each other forever). 
-  - *Mitigation*: TTL (Time-To-Live) on inter-agent requests and cost-ceiling per negotiation.
-- **Risk**: Privacy leakage between Tiers 1 and 2.
-  - *Mitigation*: Strict context-injection boundaries in the LLM prompt.
-
-## 12. Differentiation Strategy: The Agent Proxy Model
-Existing "AI Assistants" help you write emails. Borg **replaces** the email. By mandate, the user's bot is the only way in or out of their professional workspace. This creates a high-integrity data loop that traditional "optional" AI tools can never match.
+## 12. Differentiation Strategy
+Most existing solutions are ChatGPT wrappers or features bolted onto legacy templates. Borg is fundamentally different: **AI is the core architecture, not a feature.** By serving as the exclusive proxy for professional communication, it creates a high-integrity, closed-loop network. It solves an actual problem with a solution that makes existing manual workflows look primitive in comparison.
