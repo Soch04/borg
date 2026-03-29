@@ -4,7 +4,7 @@ from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
@@ -21,8 +21,13 @@ import asyncio
 # Load environment variables
 load_dotenv()
 
-# Initialize embeddings
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+# Initialize embeddings — MUST match the JS frontend (src/lib/rag.js).
+# Both import and query paths use Gemini text-embedding-004 (768-dim) so
+# vectors are comparable in cosine space.
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/text-embedding-004",
+    google_api_key=os.environ.get("VITE_GEMINI_API_KEY")
+)
 
 # Persistent vector database (Pinecone)
 pc = Pinecone(api_key=os.environ.get("VITE_PINECONE_API_KEY"))

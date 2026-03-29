@@ -1,5 +1,5 @@
 .msg-input-form {
-  padding: 1.25rem 2.5rem;
+  padding: 1.25rem max(2rem, calc((100% - 960px) / 2 + 2rem));
   border-top: 1px solid var(--color-border);
   background: var(--color-bg);
 }
