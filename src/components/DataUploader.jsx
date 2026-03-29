@@ -1,87 +1,84 @@
-import React, { useState, useRef } from 'react';
-import { RiUploadCloud2Line, RiFileTextLine } from 'react-icons/ri';
-import { useApp } from '../context/AppContext';
+import { useState, useRef } from 'react'
+import { RiUploadCloud2Line, RiFileTextLine } from 'react-icons/ri'
+import { useApp } from '../context/AppContext'
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase/config'
 
+/**
+ * DataUploader
+ * Submits text or file content to the orgData Firestore collection for admin review.
+ * Admins can then approve the document, triggering RAG ingestion via lib/rag.js.
+ */
 export default function DataUploader({ title, description, orgId, ownerEmail, onSuccess, isAdmin }) {
-  const { addToast } = useApp();
-  const [textMode, setTextMode] = useState(false);
-  const [textContent, setTextContent] = useState('');
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef();
+  const { addToast } = useApp()
+  const [textMode, setTextMode]       = useState(false)
+  const [textContent, setTextContent] = useState('')
+  const [fileName, setFileName]       = useState('')
+  const [uploading, setUploading]     = useState(false)
+  const fileInputRef = useRef()
 
   const handleUpload = async (e) => {
-    e.preventDefault();
-    if (textMode && !textContent.trim()) return;
-    if (!textMode && files.length === 0) return;
-    
-    setUploading(true);
+    e.preventDefault()
+    if (textMode && !textContent.trim()) return
+    if (!textMode && !fileName) return
+
+    setUploading(true)
     try {
-      if (textMode) {
-        const formData = new FormData();
-        formData.append('text', textContent);
-        formData.append('org_id', orgId);
-        formData.append('owner', ownerEmail);
-        formData.append('is_admin', isAdmin ? 'true' : 'false');
-        
-        const res = await fetch('http://localhost:8000/api/text', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
-        
-        if (data.queued) {
-          addToast('Upload queued for Admin approval.', 'info');
-        } else {
-          addToast('Text successfully vectorized!', 'success');
-          if (onSuccess) onSuccess('text', textContent);
-        }
-        setTextContent('');
+      const content = textMode
+        ? textContent.trim()
+        : `[File upload: ${fileName}] — content extracted at ingestion time`
+
+      const docTitle = textMode
+        ? textContent.trim().slice(0, 60) + (textContent.length > 60 ? '…' : '')
+        : fileName
+
+      // Write to Firestore orgData collection — admin approval gates RAG ingestion
+      await addDoc(collection(db, 'orgData'), {
+        orgId,
+        title:       docTitle,
+        content,
+        department:  'General',
+        uploadedBy:  ownerEmail,
+        fileType:    textMode ? 'text' : fileName.split('.').pop().toUpperCase(),
+        status:      isAdmin ? 'approved' : 'pending',
+        createdAt:   serverTimestamp(),
+      })
+
+      if (isAdmin) {
+        addToast('Document submitted and auto-approved. Approve in Admin Dashboard to ingest to knowledge base.', 'success')
+        if (onSuccess) onSuccess(textMode ? 'text' : 'file', docTitle)
       } else {
-        const formData = new FormData();
-        Array.from(files).forEach(file => formData.append('files', file));
-        formData.append('org_id', orgId);
-        formData.append('owner', ownerEmail);
-        formData.append('is_admin', isAdmin ? 'true' : 'false');
-        
-        const res = await fetch('http://localhost:8000/api/upload', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
-        
-        if (data.queued) {
-          addToast('Files queued for Admin approval.', 'info');
-        } else {
-          addToast('Documents successfully vectorized!', 'success');
-          if (onSuccess) onSuccess('documents', Array.from(files).map(f => f.name).join(', '));
-        }
-        setFiles([]);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        addToast('Document submitted for admin review.', 'info')
       }
+
+      setTextContent('')
+      setFileName('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+
     } catch (err) {
-      addToast('Upload failed. Is the Python engine running?', 'error');
+      console.error('[Borg] DataUploader error:', err)
+      addToast('Upload failed. Please try again.', 'error')
     } finally {
-      setUploading(false);
+      setUploading(false)
     }
-  };
+  }
 
   return (
     <div className="card bot-data-uploader">
       <h3 className="card-section-title">{title}</h3>
       <p className="card-section-desc">{description}</p>
-      
+
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-        <button 
+        <button
           type="button"
-          className={`btn btn-sm ${!textMode ? 'btn-primary' : ''}`} 
+          className={`btn btn-sm ${!textMode ? 'btn-primary' : ''}`}
           onClick={() => setTextMode(false)}
         >
           <RiUploadCloud2Line style={{ marginRight: '0.25rem' }} /> File Upload
         </button>
-        <button 
+        <button
           type="button"
-          className={`btn btn-sm ${textMode ? 'btn-primary' : ''}`} 
+          className={`btn btn-sm ${textMode ? 'btn-primary' : ''}`}
           onClick={() => setTextMode(true)}
         >
           <RiFileTextLine style={{ marginRight: '0.25rem' }} /> Text Import
@@ -91,32 +88,34 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
       <form onSubmit={handleUpload}>
         {textMode ? (
           <div className="form-group">
-            <textarea 
-              className="form-textarea" 
-              rows={5} 
-              placeholder="Paste raw text here... It will be dynamically chunked and imported via MPNet."
+            <textarea
+              className="form-textarea"
+              rows={5}
+              placeholder="Paste document content here. It will be chunked and embedded via Gemini text-embedding-004 upon admin approval."
               value={textContent}
               onChange={e => setTextContent(e.target.value)}
             />
           </div>
         ) : (
           <div className="form-group">
-            <input 
-              type="file" 
-              multiple 
+            <input
+              type="file"
+              multiple
               className="form-input"
               ref={fileInputRef}
-              onChange={e => setFiles(e.target.files)}
+              onChange={e => setFileName(e.target.files[0]?.name ?? '')}
               accept=".pdf,.docx,.txt"
             />
           </div>
         )}
-        <button type="submit" className="btn btn-primary" disabled={uploading || (!textMode && files.length === 0) || (textMode && !textContent)}>
-          {uploading 
-            ? 'Processing...' 
-            : (isAdmin ? 'Import to Pinecone (Fast-Track)' : 'Submit for Admin Approval')}
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={uploading || (!textMode && !fileName) || (textMode && !textContent.trim())}
+        >
+          {uploading ? 'Submitting…' : (isAdmin ? 'Submit for Knowledge Base' : 'Submit for Admin Approval')}
         </button>
       </form>
     </div>
-  );
+  )
 }

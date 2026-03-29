@@ -1,14 +1,27 @@
 import { callGemini } from './gemini'
 import { buildSystemPrompt } from './buildPrompt'
 import { extractMentionedEmails } from '../utils/parseMentions'
+import { queryKnowledgeBase } from '../lib/rag'
 
 export async function generateAgentReply({ interaction, user, agent, mode = 'manual' }) {
   const myAgentName  = agent?.displayName ?? `${user.displayName}'s Agent`
   const senderName   = (interaction.senderName || interaction.sender_name) ?? 'Another agent'
   const messageBody  = interaction.messageBody || interaction.content || interaction.body
 
-  // Placeholder for future Vector Database integration
-  const vectorContext = `[MOCK VECTOR DB SEARCH RESULTS: No extra documents found outside of profile.]`
+  // Retrieve relevant documents from the org knowledge base to ground the reply
+  let vectorContext = ''
+  if (user?.orgId) {
+    try {
+      const results = await queryKnowledgeBase(user.orgId, messageBody, { is_approved: true })
+      if (results.length > 0) {
+        vectorContext = results
+          .map(r => `### ${r.title}\n${r.text}`)
+          .join('\n\n')
+      }
+    } catch (err) {
+      console.warn('[Borg] generateAgentReply: RAG query failed, proceeding without KB context:', err)
+    }
+  }
 
   let rules = [
     `Reply on behalf of ${user.displayName} (${user.email}).`,

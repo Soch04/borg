@@ -307,7 +307,6 @@ function ActiveOrgDashboard({ activeOrgId }) {
             {/* Admin Controls */}
             {isActuallyAdmin && (
               <>
-                <AdminQueue orgId={activeOrgId} onSuccess={handleUploaderSuccess} />
                 <div className="card org-submissions-card">
                 <h3 className="card-section-title"><RiUserAddLine style={{verticalAlign:'middle'}}/> Invite Members</h3>
                 <form onSubmit={handleInvite} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
@@ -410,88 +409,6 @@ function OrgDataItem({ item }) {
       <div className="submission-status">
         <RiCheckLine style={{ color: 'var(--color-success)' }} />
         <span className="badge badge-approved">Indexed</span>
-      </div>
-    </div>
-  )
-}
-
-function AdminQueue({ orgId, onSuccess }) {
-  const { addToast } = useApp()
-  const [queue, setQueue] = useState([])
-
-  const loadQueue = () => {
-    fetch(`http://localhost:8000/api/queue?org_id=${orgId}`)
-      .then(r => r.json())
-      .then(d => setQueue(d.queue || []))
-      .catch(err => console.error(err))
-  }
-  
-  useEffect(() => { 
-    loadQueue(); 
-    const int = setInterval(loadQueue, 3000); 
-    return () => clearInterval(int) 
-  }, [orgId])
-
-  const [previewId, setPreviewId] = useState(null)
-
-  const action = async (req, act) => {
-    const fd = new FormData(); fd.append('req_id', req.req_id);
-    await fetch(`http://localhost:8000/api/queue/${act}`, { method: 'POST', body: fd })
-    addToast(`Request ${act}d`, 'success')
-    if (act === 'approve' && onSuccess) {
-      onSuccess(req.type, req.title)
-    }
-    loadQueue()
-  }
-
-  return (
-    <div className="card org-submissions-card" style={{ borderColor: 'var(--color-warning)' }}>
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '1rem'}}>
-        <h3 className="card-section-title" style={{color: 'var(--color-warning)', margin: 0}}><RiShieldLine style={{verticalAlign:'middle'}}/> Pending Vector Approvals ({queue.length})</h3>
-        <button onClick={loadQueue} className="btn btn-sm" style={{borderColor:'var(--color-warning)', color:'var(--color-warning)'}}>Refresh Queue</button>
-      </div>
-      <div className="submissions-list">
-        {queue.length === 0 ? (
-          <div className="empty-state" style={{ padding: '1.5rem', opacity: 0.6 }}>
-            <p>No pending upload requests for approval.</p>
-          </div>
-        ) : (
-          queue.map(q => (
-            <div key={q.req_id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1rem', borderBottom: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="submission-info" style={{ flex: 1 }}>
-                  <div className="submission-title" style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{q.title}</div>
-                  <div className="submission-meta">
-                    Source: <strong>{q.owner}</strong> · Type: {q.type}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button className="btn btn-sm" style={{borderColor: 'var(--color-accent)', color: 'var(--color-accent)', background: 'transparent'}} onClick={() => setPreviewId(previewId === q.req_id ? null : q.req_id)}>
-                    {previewId === q.req_id ? 'Hide' : 'Preview'}
-                  </button>
-                  <button className="btn btn-sm" style={{borderColor: 'var(--color-success)', color: 'var(--color-success)', background: 'transparent'}} onClick={() => action(q, 'approve')}>Accept</button>
-                  <button className="btn btn-sm" style={{borderColor: 'var(--color-danger)', color: 'var(--color-danger)', background: 'transparent'}} onClick={() => action(q, 'deny')}>Deny</button>
-                </div>
-              </div>
-              {previewId === q.req_id && q.preview && (
-                <div className="preview-box" style={{ 
-                  background: 'var(--color-bg-base)', 
-                  padding: '0.75rem', 
-                  borderRadius: '0.5rem', 
-                  fontSize: '0.8rem', 
-                  color: 'var(--text-secondary)',
-                  border: '1px dashed var(--color-accent)',
-                  maxHeight: '150px',
-                  overflowY: 'auto',
-                  whiteSpace: 'pre-wrap'
-                }}>
-                  <strong>Content Preview:</strong><br/>
-                  {q.preview}
-                </div>
-              )}
-            </div>
-          ))
-        )}
       </div>
     </div>
   )
