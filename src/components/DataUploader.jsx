@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { RiUploadCloud2Line, RiFileTextLine } from 'react-icons/ri';
 import { useApp } from '../context/AppContext';
+import { db } from '../firebase/config';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ingestDocument } from '../lib/rag';
 import { extractTextFromPDF } from '../lib/pdfParser';
 import { extractTextFromDocx } from '../lib/docxParser';
-import { v4 as uuidv4 } from 'uuid';
 
 export default function DataUploader({ title, description, orgId, ownerEmail, onSuccess, isAdmin }) {
   const { addToast } = useApp();
@@ -24,11 +25,11 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
       if (textMode) {
         // Direct Client-Side Ingestion for Text
         await ingestDocument(orgId, {
-          id: `text_${uuidv4().slice(0, 8)}`,
-          title: 'Direct Text Import',
+          id: `text_${Date.now()}`,
+          title: textContent.slice(0, 50) + (textContent.length > 50 ? '...' : ''),
           text: textContent,
           department: 'global',
-          adminId: ownerEmail // Track owner as admin for audit
+          adminId: ownerEmail
         });
         
         addToast('Text successfully vectorized to Pinecone!', 'success');
@@ -38,16 +39,16 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
         // Direct Client-Side Ingestion for Files
         for (const file of Array.from(files)) {
           let text = '';
-          if (file?.type === 'application/pdf') {
+          if (file.type === 'application/pdf') {
             text = await extractTextFromPDF(file);
-          } else if (file?.name?.toLowerCase().endsWith('.docx')) {
+          } else if (file.name.endsWith('.docx')) {
             text = await extractTextFromDocx(file);
-          } else if (file) {
-            text = await file.text();
+          } else {
+            text = await file.text(); // Assume plain text for other types (.txt, etc)
           }
 
           await ingestDocument(orgId, {
-            id: `file_${uuidv4().slice(0, 8)}`,
+            id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
             title: file.name,
             text: text,
             department: 'global',
@@ -61,7 +62,7 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     } catch (err) {
-      console.error('Ingestion failed:', err);
+      console.error('[DataUploader] Ingestion Error:', err);
       addToast(`Upload failed: ${err.message}`, 'error');
     } finally {
       setUploading(false);
