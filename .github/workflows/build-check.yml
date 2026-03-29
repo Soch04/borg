@@ -1,0 +1,40 @@
+name: Build Check
+
+on:
+  push:
+    branches: [main, organization, theme]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Vite Production Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+        env:
+          # Using placeholder values — build validates module graph, not runtime API calls
+          VITE_FIREBASE_API_KEY: placeholder
+          VITE_FIREBASE_AUTH_DOMAIN: placeholder.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: polly-970c1
+          VITE_FIREBASE_STORAGE_BUCKET: polly-970c1.appspot.com
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          VITE_FIREBASE_APP_ID: "1:000000000000:web:placeholder"
+          VITE_GEMINI_API_KEY: placeholder
+          VITE_PINECONE_API_KEY: placeholder
+          VITE_PINECONE_INDEX: borg-org-knowledge
+
+      - name: Report bundle size
+        run: du -sh dist/assets/*.js 2>/dev/null | sort -hr | head -5 || echo "No JS assets found"
