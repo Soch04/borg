@@ -3,7 +3,7 @@
  * Import these constants instead of reading import.meta.env directly.
  */
 
-export const USE_MOCK    = import.meta.env.VITE_USE_MOCK    === 'true'
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 export const ENABLE_INTERNAL_MONOLOGUE = import.meta.env.VITE_ENABLE_INTERNAL_MONOLOGUE === 'true'
 export const HIDE_ORG_DATA_UI         = import.meta.env.VITE_HIDE_ORG_DATA_UI          === 'true'
 
