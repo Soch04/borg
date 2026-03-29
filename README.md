@@ -137,31 +137,55 @@ Each organization owns an isolated Pinecone namespace partitioned by `orgId`. Th
 
 ## RAG Pipeline
 
-### Ingestion (`src/lib/rag.js`)
+### Ingestion (`user_input.py` — Python FastAPI)
 
-1. Admin uploads a document via the Admin Dashboard → saved to `orgData` with `status: "pending"`
-2. Admin approves → `ingestDocument()` is called
-3. Content split via recursive character chunking — **1,000 tokens per chunk, 200-token overlap**
-4. Each chunk embedded via `all-mpnet-base-v2` (768 dimensions)
-5. Chunks upserted to Pinecone namespace `orgId` (or filtered by metadata) with mandatory metadata:
+1. User uploads a document via the DataUploader → React POSTs to `/api/upload` or `/api/text`
+2. `user_input.py` receives the file and passes it to the appropriate LangChain loader:
+   - `.pdf` → `PyPDFLoader`
+   - `.docx` → `Docx2txtLoader`
+   - `.txt` / text → `TextLoader` / direct string
+3. Document classified as **structured** (has headers/tables) or **unstructured** via signal scoring
+4. Chunked via `SemanticChunker` (structured) or `RecursiveCharacterTextSplitter` (unstructured):
+   - Chunk size: **1,000 characters** — overlap: **100 characters** (10%)
+5. Each chunk embedded via HuggingFace `all-mpnet-base-v2` (**768 dimensions**)
+6. Chunks upserted to Pinecone namespace `orgId` with metadata:
    ```json
-   { "is_approved": true, "adminId": "uid", "department": "string", "docId": "string", "title": "string" }
+   { "is_approved": true, "owner": "email", "org_id": "string", "source": "filename" }
    ```
 
-### Query (`src/hooks/useMessages.js`)
+### Query (`src/hooks/useMessages.js` — 5-stage browser pipeline)
 
-1. User sends a message → `queryKnowledgeBase(orgId, content, { is_approved: true })`
-2. Pinecone returns top-5 matching chunks from the org's namespace
-3. Chunks formatted as `### DOCUMENT: {title}\n{text}` and injected into the Gemini system prompt
-4. Gemini synthesizes a response grounded in retrieved content
-5. Source citations `[{ id, title }]` returned alongside the response text
-6. Citation badges render in `MessageBubble.jsx` — clicking a badge highlights and scrolls to the document in the Knowledge Base panel
+1. `classifyQuery(message)` → intent: `FACTUAL` / `PROCEDURAL` / `ANALYTICAL` / `CONVERSATIONAL`
+2. `generateHypotheticalDoc()` → HyDE generates an answer-space document to embed instead of the raw query (Gao et al. 2022)
+3. `queryKnowledgeBase(orgId, hydeDoc, { is_approved: true })` → Pinecone top-K (4–8 by intent)
+4. `rerankResults(query, chunks)` → Gemini cross-encoder scores each chunk 0–10, filters ≥6
+5. `buildCitationBlock(reranked)` → deduplication by docId, confidence labels, 25,500-token budget trim
+6. `streamGemini({ onChunk })` → SSE token stream, rendered progressively via `streaming-cursor` animation
 
 ### Privacy Architecture
 
 `is_approved: true` is enforced as a **Pinecone server-side metadata filter** on every query — not an application-layer check. An unapproved document cannot be retrieved by the agent even if the application layer is compromised, because the filter is applied at the vector database before any results are returned.
 
 ---
+
+## Running the Ingestion Server
+
+The Python FastAPI ingestion backend must be running for document uploads to work.
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the ingestion server (defaults to localhost:8000)
+uvicorn user_input:app --reload --port 8000
+```
+
+Endpoints:
+- `POST /api/upload` — upload PDF, DOCX, or TXT files (multipart/form-data)
+- `POST /api/text`   — submit raw text for ingestion
+- `DELETE /api/delete` — remove a document from Pinecone by source path
+
+The React frontend (`DataUploader.jsx`) POST to these endpoints automatically. The Pinecone query path (all 5 RAG stages) runs entirely in the browser and does not require the Python server.
 
 ## Application Pages
 
@@ -293,17 +317,16 @@ npx firebase-tools deploy
 
 ---
 
-## Admin Workflow: Adding Knowledge
+## Knowledge Base: Adding Documents
 
-1. **Sign in** as an org admin account
-2. **Navigate to Admin → Knowledge Base tab**
-3. Click **Add Document** — paste or type content, assign a department
-4. The document appears with `status: pending`
-5. Click **Approve** → `ingestDocument()` runs:
-   - Content is chunked (1,000 tokens / 200-token overlap)
-   - Each chunk embedded via Gemini `text-embedding-004`
-   - Vectors upserted to Pinecone namespace `{orgId}` with `is_approved: true`
-6. The document is now **live and retrievable** by any agent in the organization
+1. **Sign in** to your organization account
+2. **Navigate to the Org / Knowledge Base tab**
+3. Click **File Upload** (PDF, DOCX, or TXT) or **Text Import** (paste content)
+4. Submit — the DataUploader sends the content to the Python ingestion server (`POST /api/upload`)
+5. The server chunks, embeds, and upserts directly to Pinecone with `is_approved: true`
+6. The document is now **live and retrievable** by any agent query in the organization
+
+> **Note**: Requires the Python ingestion server to be running locally (`uvicorn user_input:app --reload`).
 
 ---
 
