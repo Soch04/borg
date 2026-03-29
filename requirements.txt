@@ -1,0 +1,16 @@
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+pinecone
+langchain-pinecone
+pypdf
+beautifulsoup4
+sentence-transformers
+python-dotenv
+fastapi
+uvicorn
+python-multipart
+docx2txt
+langchain-experimental
+langchain-huggingface

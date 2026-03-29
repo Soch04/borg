@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   RiSendPlane2Line, RiUploadCloud2Line, RiFileTextLine, 
   RiDeleteBinLine, RiCheckboxCircleLine, RiCloseCircleLine,
-  RiFileList3Line, RiInputMethodLine
+  RiFileList3Line, RiInputMethodLine, RiNotification3Line, RiGroupLine
 } from 'react-icons/ri';
 import './UserInputPage.css';
 
@@ -12,14 +12,36 @@ export default function UserInputPage() {
   ]);
   const [inputValue, setInputValue] = useState('');
   const [pendingText, setPendingText] = useState(null);
-  
+
   // Data Gallery State
   const [activeData, setActiveData] = useState([]);
   const [filter, setFilter] = useState('All'); // All, Typed, Uploaded
   const [isDragging, setIsDragging] = useState(false);
-  
+  const [isShared, setIsShared] = useState(false);
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Live Alerts WebSocket
+  useEffect(() => {
+    // Connect to FastAPI websocket
+    const ws = new WebSocket('ws://localhost:8000/ws/alerts/user123');
+    ws.onmessage = (event) => {
+      // Add a high priority alert to chat
+      setMessages(prev => [...prev, {
+        id: Date.now(), type: 'bot', text: `🚨 LIVE ALERT: ${event.data}`
+      }]);
+    };
+    return () => ws.close();
+  }, []);
+
+  const simulateAlert = async () => {
+    await fetch('http://localhost:8000/api/chat_simulate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target_user: 'user123', sender: 'Brahian' })
+    });
+  }
 
   // Auto-scroll chat
   useEffect(() => {
@@ -43,31 +65,23 @@ export default function UserInputPage() {
     }
   };
 
-  const handleConfirmSend = () => {
+  const handleConfirmSend = async () => {
     if (!pendingText) return;
-    
+
     // Add to chat
     setMessages(prev => [...prev, { id: Date.now(), type: 'user', text: pendingText }]);
-    
-    // Add to Active Data Gallery as 'User Typed'
-    const newEntry = {
-      id: Date.now(),
-      name: pendingText.length > 30 ? pendingText.substring(0, 30) + '...' : pendingText,
-      fullText: pendingText,
-      category: 'Typed',
-      date: new Date().toLocaleDateString()
-    };
-    setActiveData(prev => [newEntry, ...prev]);
-    
+
+    await textInput(pendingText);
+
     setInputValue('');
     setPendingText(null);
-    
+
     // Simulate bot response
     setTimeout(() => {
-      setMessages(prev => [...prev, { 
-        id: Date.now(), 
-        type: 'bot', 
-        text: 'I have recorded your input and added it to our active data gallery.' 
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        type: 'bot',
+        text: 'I have recorded your input and automatically vectorized it into Pinecone.'
       }]);
     }, 600);
   };
@@ -103,38 +117,77 @@ export default function UserInputPage() {
     }
   };
 
-  const processFiles = (files) => {
+  const textInput = async (text) => {
+    const formData = new FormData();
+    formData.append('text', text);
+    formData.append('shared_org', isShared ? 'Org_123' : 'none');
+    const response = await fetch('http://localhost:8000/api/text', {
+      method: 'POST',
+      body: formData,
+    });
+    if (response.ok) {
+      const newEntry = {
+        id: Date.now(),
+        name: text.length > 30 ? text.substring(0, 30) + '...' : text,
+        fullText: text,
+        category: 'Typed',
+        date: new Date().toLocaleDateString()
+      };
+      setActiveData(prev => [newEntry, ...prev]);
+    }
+  };
+
+  const processFiles = async (files) => {
     const fileArray = Array.from(files);
-    const validFiles = fileArray.filter(f => 
-      f.name.endsWith('.pdf') || f.name.endsWith('.docx') || 
-      f.type === 'application/pdf' || 
+    const validFiles = fileArray.filter(f =>
+      f.name.endsWith('.pdf') || f.name.endsWith('.docx') ||
+      f.type === 'application/pdf' ||
       f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     );
-    
+
     if (validFiles.length > 0) {
-      const newEntries = validFiles.map((file, i) => ({
-        id: Date.now() + i,
-        name: file.name,
-        size: (file.size / 1024).toFixed(1) + ' KB',
-        category: 'Uploaded',
-        date: new Date().toLocaleDateString()
-      }));
-      
-      setActiveData(prev => [...newEntries, ...prev]);
-      
-      // Post generic message indicating success
+      const formData = new FormData();
+      validFiles.forEach(file => { formData.append('files', file); });
+      formData.append('shared_org', isShared ? 'Org_123' : 'none');
+
       setMessages(prev => [...prev, {
-        id: Date.now(),
-        type: 'bot',
-        text: `Successfully uploaded ${validFiles.length} file(s) to the data gallery.`
+        id: Date.now(), type: 'bot', text: `Uploading ${validFiles.length} file(s) to the data engine...`
       }]);
+
+      try {
+        const response = await fetch('http://localhost:8000/api/upload', {
+          method: 'POST', body: formData,
+        });
+
+        if (response.ok) {
+          const newEntries = validFiles.map((file, i) => ({
+            id: Date.now() + i, name: file.name, size: (file.size / 1024).toFixed(1) + ' KB',
+            category: 'Uploaded', date: new Date().toLocaleDateString()
+          }));
+          setActiveData(prev => [...newEntries, ...prev]);
+          setMessages(prev => [...prev, {
+            id: Date.now() + 1, type: 'bot', text: `Files successfully received by backend! Beginning text extraction and Pinecone vectorization.`
+          }]);
+        } else { throw new Error("Server rejected upload."); }
+      } catch (e) {
+        setMessages(prev => [...prev, {
+          id: Date.now() + 1, type: 'bot', error: true, text: `Error: Is your python backend running on port 8000? (${e.message})`
+        }]);
+      }
     } else {
       alert("Please only upload .pdf or .docx files.");
     }
   };
 
-  const handleDeleteData = (id) => {
-    setActiveData(prev => prev.filter(item => item.id !== id));
+  const handleDeleteData = async (id) => {
+    const item = activeData.find(i => i.id === id);
+    if (!item) return;
+    try {
+      if (item.category === 'Uploaded' || item.category === 'Typed') {
+        await fetch(`http://localhost:8000/api/delete?source=${encodeURIComponent(item.name)}`, { method: 'DELETE' });
+      }
+      setActiveData(prev => prev.filter(i => i.id !== id));
+    } catch (e) { console.error(e); }
   };
 
   const filteredData = activeData.filter(item => {
@@ -150,24 +203,24 @@ export default function UserInputPage() {
           <RiInputMethodLine size={24} />
           <h2>Send Input</h2>
         </header>
-        
+
         <div className="chat-messages">
           {messages.map(msg => (
-             <div key={msg.id} className={`chat-message ${msg.type}`}>
-               <div className="message-avatar">
-                 {msg.type === 'bot' ? 'B' : 'U'}
-               </div>
-               <div className="message-bubble">
-                 {msg.text}
-               </div>
-             </div>
+            <div key={msg.id} className={`chat-message ${msg.type}`}>
+              <div className="message-avatar">
+                {msg.type === 'bot' ? 'B' : 'U'}
+              </div>
+              <div className="message-bubble">
+                {msg.text}
+              </div>
+            </div>
           ))}
           <div ref={messagesEndRef} />
         </div>
 
         <div className="chat-input-area">
           <div className="chat-input-wrapper">
-            
+
             {pendingText && (
               <div className="confirmation-prompt">
                 <span><strong>Are you sure?</strong> Do you want to submit this input?</span>
@@ -186,38 +239,44 @@ export default function UserInputPage() {
               onKeyDown={handleKeyDown}
               rows={1}
             />
-            
+
             {!pendingText && (
-              <button 
-                className="send-button"
-                disabled={!inputValue.trim()}
-                onClick={() => setPendingText(inputValue.trim())}
-                title="Send Message"
-              >
-                <RiSendPlane2Line size={18} />
-              </button>
+              <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+                <label style={{display:'flex', alignItems:'center', gap:'4px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer', whiteSpace:'nowrap'}}>
+                  <input type="checkbox" checked={isShared} onChange={e => setIsShared(e.target.checked)} />
+                  <RiGroupLine/> Share with Org
+                </label>
+                <button
+                  className="send-button"
+                  disabled={!inputValue.trim()}
+                  onClick={() => setPendingText(inputValue.trim())}
+                  title="Send Message"
+                >
+                  <RiSendPlane2Line size={18} />
+                </button>
+              </div>
             )}
-            
+
           </div>
         </div>
       </section>
 
       {/* RIGHT: File Management & Gallery */}
       <section className="file-management-section">
-        
+
         {/* Upload Area */}
-        <div 
+        <div
           className={`upload-area ${isDragging ? 'drag-over' : ''}`}
           onClick={handleFileUploadClick}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            className="hidden-file-input" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden-file-input"
             accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             multiple
           />
@@ -229,7 +288,16 @@ export default function UserInputPage() {
         {/* Data Gallery */}
         <div className="data-gallery">
           <header className="gallery-header">
-            <h3>Active Data ({activeData.length})</h3>
+            <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+              <h3>Active Data ({activeData.length})</h3>
+              <button 
+                onClick={simulateAlert} 
+                className="filter-btn active" 
+                style={{backgroundColor: '#e74c3c', color: 'white', border: 'none'}}
+              >
+                <RiNotification3Line size={14}/> Test Live Alert
+              </button>
+            </div>
             <div className="gallery-filters">
               {['All', 'Typed', 'Uploaded'].map(f => (
                 <button
@@ -263,8 +331,8 @@ export default function UserInputPage() {
                       </span>
                     </div>
                   </div>
-                  <button 
-                    className="btn-delete" 
+                  <button
+                    className="btn-delete"
                     onClick={() => handleDeleteData(item.id)}
                     title="Delete entry"
                   >

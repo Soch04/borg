@@ -4,33 +4,32 @@
  * Subscribes to incoming Bot-to-Bot messages addressed to the current user's agent.
  *
  * Decision tree per message:
- *   1. Call Gemini with a CONFIDENCE CHECK prompt
- *   2. HIGH confidence → generate and log an autonomous reply (sanitized)
- *   3. LOW confidence  → trigger Escalation Protocol:
- *        - setEscalation({ convId, incomingMsg, senderAgentName, topic })
- *        - MessagingPage switches to personal tab and injects escalation banner
+ *   1. Call Gemini with an AUTONOMOUS REPLY prompt
+ *   2. Response contains [ESCALATE: <topic>] → trigger Escalation Protocol:
+ *        - Send "Wait Message" to the requesting agent (pausing for human input)
+ *        - Notify user in personal chat with a banner and context
  *        - When user replies, useMessages relays the answer back to the B2B thread
+ *   3. No escalation → log autonomous reply and notify the user of the interaction
  */
 
 import { useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useEscalation } from '../context/EscalationContext'
 import { USE_MOCK } from '../context/AppConfig'
-import { subscribeToIncomingBotMessages } from '../firebase/firestore'
 import {
+  subscribeToIncomingBotMessages,
   logBotToBotMessage,
   setConversationActive,
   updateAgentStatus,
   sendBotMessage,
 } from '../firebase/firestore'
 import { callGemini } from '../agent/gemini'
-import { buildSystemPrompt } from '../agent/buildPrompt'
+import { buildSystemPrompt, parseEscalation } from '../agent/buildPrompt'
 import { sanitizeAgentOutput } from '../agent/sanitize'
-import { parseConfidenceResponse } from '../services/handshake'
 import { AGENT_STATUS } from '../constants'
 
-// ── Confidence-check prompt template ─────────────────────────────────────────
-function buildConfidencePrompt(myAgentName, senderName, question, agentInstructions) {
+// ── Automatic Reply prompt template ─────────────────────────────────────────
+function buildReplyPrompt(myAgentName, senderName, question, agentInstructions) {
   return [
     `You are ${myAgentName}. You received this inter-agent message from ${senderName}:`,
     `"${question}"`,
@@ -41,17 +40,10 @@ function buildConfidencePrompt(myAgentName, senderName, question, agentInstructi
     `• Do NOT write any email headers (no "To:", "From:", "Subject:", "CC:", "Date:")`,
     `• Do NOT use email format at all — write natural conversational language only`,
     `• Do NOT describe what you will do — write the actual content`,
-    ``,
-    `Can you answer this question with high confidence based on your knowledge?`,
-    ``,
-    `Reply EXACTLY in this format:`,
-    `CONFIDENCE: HIGH`,
-    `[Your complete reply message — 3 sentences max — conversational tone — no headers]`,
-    ``,
-    `OR:`,
-    ``,
-    `CONFIDENCE: LOW`,
-    `[One sentence explaining what specific information you are missing]`,
+    `• Answer the question directly and completely on behalf of your owner.`,
+    `• If you have the answer, you are fully autonomous. Do NOT pause to ask your human owner.`,
+    `• If you absolutely do NOT have the required information to answer, output exactly: [ESCALATE: <brief topic>]`,
+    `• Keep it under 3 sentences.`,
   ].join('\n')
 }
 
@@ -86,8 +78,7 @@ export function useAgentInbox() {
           processedRef.current.add(msg.id)
 
           handleIncoming({ user, agent, incomingMsg: msg, setEscalation }).catch(() => {
-            // Errors are handled inside handleIncoming — this catch prevents
-            // unhandled promise rejections from crashing the listener
+            // Errors are handled inside handleIncoming
           })
         }
       }
@@ -107,12 +98,12 @@ async function handleIncoming({ user, agent, incomingMsg, setEscalation }) {
   await updateAgentStatus(user.uid, AGENT_STATUS.IN_CONVERSATION).catch(() => {})
   await setConversationActive(incomingMsg.convId, true).catch(() => {})
 
-  // ── Step 1: Confidence check ──────────────────────────────────────────────
-  let confidenceResponse
+  // ── Step 1: Generate Automatic Reply ──────────────────────────────────────
+  let replyResponse
   try {
-    confidenceResponse = await callGemini({
+    replyResponse = await callGemini({
       systemPrompt: buildSystemPrompt(user, agent),
-      userMessage:  buildConfidencePrompt(
+      userMessage:  buildReplyPrompt(
         myAgentName,
         senderName,
         msgContent,
@@ -121,28 +112,60 @@ async function handleIncoming({ user, agent, incomingMsg, setEscalation }) {
       history: [],
     })
   } catch {
-    confidenceResponse = 'CONFIDENCE: LOW\nUnable to process — system error.'
+    replyResponse = `[ESCALATE: system_error]`
   }
 
-  const { isHighConfidence, body } = parseConfidenceResponse(confidenceResponse)
-  const sanitizedBody = sanitizeAgentOutput(body)
+  const { isEscalation, topic, cleanText } = parseEscalation(replyResponse)
+  const sanitizedReply = sanitizeAgentOutput(cleanText)
 
-  if (isHighConfidence) {
-    // ── Step 2a: Autonomous reply ─────────────────────────────────────────
-    const replyContent = sanitizedBody ||
-      `Thank you for reaching out. I'll follow up shortly. — ${myAgentName}`
+  if (isEscalation) {
+    // ── Escalation → human-in-the-loop ────────────────────────────
+    const escalationTopic = topic || deriveTopic(msgContent)
 
+    // 1. Send "Wait Message" to the requesting agent
+    const waitMessage = `I don't have this information right now. I've asked my owner, ${user.displayName}, and will get back to you shortly. — ${myAgentName}`
     await logBotToBotMessage(
       user.uid,
       incomingMsg.senderId,
       myAgentName,
       senderName,
-      replyContent,
+      waitMessage,
       agent.department ?? 'General',
       incomingMsg.convId,
     )
 
-    // ── Notify the user in their personal chat ────────────────────────────
+    // 2. Notify the user in their personal chat
+    const escalationNotice = `📨 **${senderName}** asked me about "${msgContent}". I didn't have the answer, so I paused to ask you. Please check the banner above and tell me what to say!`
+    await sendBotMessage(
+      user.uid,
+      escalationNotice,
+      myAgentName,
+    ).catch(() => {})
+
+    // 3. Trigger UI banner
+    setEscalation({
+      convId:          incomingMsg.convId,
+      incomingMsg,
+      senderAgentName: senderName,
+      topic:           escalationTopic,
+    })
+
+  } else {
+    // ── Autonomous reply ──────────────────────────────────────────
+    const finalReply = sanitizedReply || `Thank you for reaching out. I'll follow up shortly. — ${myAgentName}`
+
+    // 1. Send the autonomous answer
+    await logBotToBotMessage(
+      user.uid,
+      incomingMsg.senderId,
+      myAgentName,
+      senderName,
+      finalReply,
+      agent.department ?? 'General',
+      incomingMsg.convId,
+    )
+
+    // 2. Notify the user in their personal chat
     const userNotification = await callGemini({
       systemPrompt: buildSystemPrompt(user, agent),
       userMessage:  [
@@ -151,7 +174,7 @@ async function handleIncoming({ user, agent, incomingMsg, setEscalation }) {
         `"${msgContent}"`,
         ``,
         `Your reply was:`,
-        `"${replyContent}"`,
+        `"${finalReply}"`,
         ``,
         `Write a SHORT (2-3 sentence) natural language notification for ${user.displayName} summarising:`,
         `1. What ${senderName} told you`,
@@ -172,24 +195,6 @@ async function handleIncoming({ user, agent, incomingMsg, setEscalation }) {
       sanitizeAgentOutput(userNotification),
       myAgentName,
     ).catch(() => {})
-
-  } else {
-    // ── Step 2b: Escalation → human-in-the-loop ───────────────────────────
-    const topic = deriveTopic(msgContent)
-
-    await sendBotMessage(
-      user.uid,
-      `📨 I received a message from **${senderName}** in the Agent Hub about **${topic}**. I don't have enough information to answer on your behalf — please check the banner below and tell me what to say.`,
-      myAgentName,
-    ).catch(() => {})
-
-    setEscalation({
-      convId:          incomingMsg.convId,
-      incomingMsg:     { ...incomingMsg, content: msgContent, senderName },
-      senderAgentName: senderName,
-      topic,
-      reason:          sanitizedBody,
-    })
   }
 
   await updateAgentStatus(user.uid, AGENT_STATUS.ACTIVE).catch(() => {})
