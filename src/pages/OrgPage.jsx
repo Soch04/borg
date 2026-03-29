@@ -2,9 +2,19 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useApp } from '../context/AppContext'
 import { 
-  submitOrgData, subscribeToUserOrgData, 
-  createOrganization, joinOrganization, getOrgMembers, subscribeToOrganization, inviteUserToOrg,
-  removeMember, updateMemberRole, disbandOrganization
+  getOrgMembers, 
+  inviteUserToOrg, 
+  removeMember, 
+  disbandOrganization, 
+  updateMemberRole, 
+  subscribeToOrganization, 
+  subscribeToUserOrgData, 
+  submitOrgData,
+  subscribeToIngestionQueue,
+  deleteQueueItem,
+  updateOrgDataStatus,
+  createOrganization,
+  joinOrganization
 } from '../firebase/firestore'
 import { DEPARTMENTS } from '../data/mockData'
 import { RiBuildingLine, RiUpload2Line, RiFileTextLine, RiTimeLine, RiCheckLine, RiCloseLine, RiGroupLine, RiUserAddLine, RiShieldLine, RiInboxArchiveLine } from 'react-icons/ri'
@@ -83,11 +93,12 @@ function OrgOnboarding() {
     if (!orgName.trim()) return
     setCreating(true)
     try {
-      await createOrganization(user.uid, orgName.trim(), user.email)
+      await createOrganization(user.uid, orgName.trim(), user.email, user.displayName)
       addToast(`Organization "${orgName}" created!`, 'success')
       // Note: AuthContext onSnapshot will catch the user.orgId update and unmount Onboarding.
     } catch (err) {
-      addToast('Failed to create organization', 'error')
+      console.error('[OrgOnboarding] Creation failed:', err)
+      addToast(`Failed to create organization: ${err.message}`, 'error')
       setCreating(false)
     }
   }
@@ -254,14 +265,16 @@ function ActiveOrgDashboard({ activeOrgId }) {
     }
   }
 
-  const handleUploaderSuccess = async (type, rawContent) => {
+  const handleUploaderSuccess = async (type, rawContent, isPending = false, reqId = null) => {
     try {
       const title = type === 'text' ? rawContent.slice(0, 30) + (rawContent.length > 30 ? '...' : '') : rawContent;
       await submitOrgData(user.uid, user.displayName, activeOrgId, {
         title: title,
         content: type === 'text' ? rawContent : 'Binary file vectorized to Pinecone',
         department: 'global',
-        fileType: type === 'text' ? 'text' : 'document'
+        fileType: type === 'text' ? 'text' : 'document',
+        status: isPending ? 'pending' : 'approved',
+        active_req_id: reqId
       })
     } catch (err) {
       console.error('Failed to update UI feed:', err)
@@ -350,8 +363,8 @@ function ActiveOrgDashboard({ activeOrgId }) {
                             <option value="contributor">Upload (with approval)/Query</option>
                             <option value="querier">Only Readers</option>
                          </select>
-                         <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', margin: 0 }}>
-                           <input type="checkbox" checked={m.autoApprove || false} onChange={e => updateMemberRole(activeOrgId, m.uid, { autoApprove: e.target.checked })} /> Fast-Track (Bypass Auth)
+                         <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', margin: 0, color: m.autoApprove ? 'var(--color-success)' : 'var(--text-secondary)' }}>
+                           <input type="checkbox" checked={m.autoApprove || false} onChange={e => updateMemberRole(activeOrgId, m.uid, { autoApprove: e.target.checked })} /> Fast-Track Enabled (Direct Vectoring)
                          </label>
                          <button className="btn btn-sm" style={{borderColor:'var(--color-danger)', color:'var(--color-danger)', background:'transparent', marginLeft:'auto'}} onClick={() => { if(window.confirm('Kick user?')) removeMember(activeOrgId, m.uid); }}>Kick</button>
                       </div>
@@ -396,10 +409,14 @@ function ActiveOrgDashboard({ activeOrgId }) {
 }
 
 function OrgDataItem({ item }) {
-  const { title, department, fileType, createdAt } = item
+  const { title, department, fileType, createdAt, status } = item
   const date = createdAt?.toDate?.()?.toLocaleDateString() ?? '—'
+  
+  const isApproved = status === 'approved' || !status;
+  const isRejected = status === 'rejected';
+  
   return (
-    <div className="submission-item card-hover">
+    <div className="submission-item card-hover" style={{ opacity: isRejected ? 0.6 : 1 }}>
       <div className="submission-icon"><RiFileTextLine /></div>
       <div className="submission-info">
         <div className="submission-title">{title}</div>
@@ -408,8 +425,22 @@ function OrgDataItem({ item }) {
         </div>
       </div>
       <div className="submission-status">
-        <RiCheckLine style={{ color: 'var(--color-success)' }} />
-        <span className="badge badge-approved">Indexed</span>
+        {isApproved ? (
+           <>
+            <RiCheckLine style={{ color: 'var(--color-success)' }} />
+            <span className="badge badge-approved" style={{color: 'var(--color-success)', borderColor: 'var(--color-success)'}}>Indexed</span>
+           </>
+        ) : isRejected ? (
+           <>
+            <RiCloseLine style={{ color: 'var(--color-danger)' }} />
+            <span className="badge" style={{color: 'var(--color-danger)', borderColor: 'var(--color-danger)'}}>Rejected</span>
+           </>
+        ) : (
+           <>
+            <RiTimeLine style={{ color: 'var(--color-warning)' }} />
+            <span className="badge" style={{color: 'var(--color-warning)', borderColor: 'var(--color-warning)'}}>Pending</span>
+           </>
+        )}
       </div>
     </div>
   )
@@ -419,36 +450,44 @@ function AdminQueue({ orgId, onSuccess }) {
   const { addToast } = useApp()
   const [queue, setQueue] = useState([])
 
-  const loadQueue = () => {
-    fetch(`http://localhost:8000/api/queue?org_id=${orgId}`)
-      .then(r => r.json())
-      .then(d => setQueue(d.queue || []))
-      .catch(err => console.error(err))
-  }
-  
   useEffect(() => { 
-    loadQueue(); 
-    const int = setInterval(loadQueue, 3000); 
-    return () => clearInterval(int) 
+    if (!orgId) return
+    const unsub = subscribeToIngestionQueue(orgId, setQueue)
+    return () => unsub()
   }, [orgId])
 
   const [previewId, setPreviewId] = useState(null)
 
   const action = async (req, act) => {
     const fd = new FormData(); fd.append('req_id', req.req_id);
-    await fetch(`http://localhost:8000/api/queue/${act}`, { method: 'POST', body: fd })
-    addToast(`Request ${act}d`, 'success')
-    if (act === 'approve' && onSuccess) {
-      onSuccess(req.type, req.title)
+    try {
+      await fetch(`http://localhost:8000/api/queue/${act}`, { method: 'POST', body: fd })
+      await deleteQueueItem(req.req_id)
+      
+      // SYNC THE ORG DATA ITEM
+      const status = act === 'approve' ? 'approved' : 'rejected';
+      // Search for the doc with this request ID
+      const { db } = await import('../firebase/config');
+      const { collection, query, where, getDocs, updateDoc, doc, serverTimestamp } = await import('firebase/firestore');
+      const q = query(collection(db, 'orgData'), where('active_req_id', '==', req.req_id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+         await updateDoc(doc(db, 'orgData', snap.docs[0].id), { status, updatedAt: serverTimestamp() });
+      }
+
+      addToast(`Request ${act}d successfully`, 'success')
+      if (act === 'approve' && onSuccess) {
+        onSuccess(req.type, req.title)
+      }
+    } catch (err) {
+      addToast('Failed to process request', 'error')
     }
-    loadQueue()
   }
 
   return (
     <div className="card org-submissions-card" style={{ borderColor: 'var(--color-warning)' }}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '1rem'}}>
-        <h3 className="card-section-title" style={{color: 'var(--color-warning)', margin: 0}}><RiShieldLine style={{verticalAlign:'middle'}}/> Pending Vector Approvals ({queue.length})</h3>
-        <button onClick={loadQueue} className="btn btn-sm" style={{borderColor:'var(--color-warning)', color:'var(--color-warning)'}}>Refresh Queue</button>
+        <h3 className="card-section-title" style={{color: 'var(--color-warning)', margin: 0}}><RiShieldLine style={{verticalAlign:'middle'}}/> Pending Approvals ({queue.length})</h3>
       </div>
       <div className="submissions-list">
         {queue.length === 0 ? (

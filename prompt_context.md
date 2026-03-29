@@ -12,9 +12,10 @@ I am building a **Real-Time, Multi-Tenant Collaborative RAG (Retrieval-Augmented
 *   **Identity & Auth:** Firebase Auth (Email/Password), Firebase Firestore.
 *   **Real-Time Comms:** Full-Duplex WebSockets (FastAPI + React).
 *   **Backend & Processing:** Python `FastAPI`, Asynchronous Event Loops.
-*   **Database (Vector):** Pinecone (`langchain-pinecone`), utilizing `all-mpnet-base-v2` HuggingFace Embeddings.
+*   **Database (Vector):** Pinecone (`langchain-pinecone`), utilizing `all-mpnet-base-v2` HuggingFace Embeddings for superior semantic lift.
 *   **AI / LLM:** Google `gemini-2.5-flash` natively integrated into the Python worker.
-*   **Chunking / ETL:** `SemanticChunker` (for unstructured text) and `RecursiveCharacterTextSplitter` (for structured).
+*   **Chunking / ETL:** `SemanticChunker` (break-point optimization) and `RecursiveCharacterTextSplitter` (1000px overlap).
+*   **Governance Architecture:** A **"Write-Locked by Design"** protocol where the vector index is fundamentally clean, gated by a Firestore HITL (Human-in-the-Loop) approval queue.
 
 ## 🔐 Core Architecture & Features Implemented 
 ### 1. Multi-Tenant Data Governance

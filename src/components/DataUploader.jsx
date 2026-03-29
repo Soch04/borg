@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { RiUploadCloud2Line, RiFileTextLine } from 'react-icons/ri';
 import { useApp } from '../context/AppContext';
+import { db } from '../firebase/config';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function DataUploader({ title, description, orgId, ownerEmail, onSuccess, isAdmin }) {
   const { addToast } = useApp();
@@ -31,10 +33,21 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
         const data = await res.json();
         
         if (data.queued) {
+          // SYNC WITH FIRESTORE
+          await setDoc(doc(db, 'ingestion_queue', data.req_id), {
+             req_id: data.req_id,
+             org_id: orgId,
+             owner: ownerEmail,
+             title: data.title,
+             type: data.type,
+             preview: data.preview,
+             timestamp: serverTimestamp()
+          });
           addToast('Upload queued for Admin approval.', 'info');
+          if (onSuccess) onSuccess('text', textContent, true, data.req_id);
         } else {
           addToast('Text successfully vectorized!', 'success');
-          if (onSuccess) onSuccess('text', textContent);
+          if (onSuccess) onSuccess('text', textContent, false);
         }
         setTextContent('');
       } else {
@@ -51,10 +64,21 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
         const data = await res.json();
         
         if (data.queued) {
+          // SYNC WITH FIRESTORE
+          await setDoc(doc(db, 'ingestion_queue', data.req_id), {
+             req_id: data.req_id,
+             org_id: orgId,
+             owner: ownerEmail,
+             title: data.title,
+             type: data.type,
+             preview: data.preview,
+             timestamp: serverTimestamp()
+          });
           addToast('Files queued for Admin approval.', 'info');
+          if (onSuccess) onSuccess('documents', Array.from(files).map(f => f.name).join(', '), true, data.req_id);
         } else {
           addToast('Documents successfully vectorized!', 'success');
-          if (onSuccess) onSuccess('documents', Array.from(files).map(f => f.name).join(', '));
+          if (onSuccess) onSuccess('documents', Array.from(files).map(f => f.name).join(', '), false);
         }
         setFiles([]);
         if (fileInputRef.current) fileInputRef.current.value = '';

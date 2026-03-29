@@ -5,17 +5,13 @@
 
 ---
 
-## 1. Vision Clarity: The "Internet of Agents"
+## 🎯 Project Overview
 
-**The North Star:** Move organizations beyond the "Copilot" era (passive AI assistance) into the **Agentic Mesh** era — where sovereign AI agents proactively coordinate, negotiate, and deliver knowledge without waiting to be prompted.
+**Project Borg** is a centralized, role-gated knowledge management platform that uses Retrieval-Augmented Generation (RAG) to eliminate the **'Coordination Tax'** in modern organizations. It enables both individuals and corporate teams to query a curated, organization-scoped vector database using natural language, replacing fragmented SaaS searches and manual document retrieval with a single conversational interface. 
 
-**The Coordination Tax:** Knowledge workers at scaling companies lose 2.5+ hours per day on "Search and Coordinate" tasks — hunting Slack threads, chasing subject-matter experts, and re-explaining context that already exists somewhere in the organization (IDC, 2023). This is not a productivity problem. It is an architecture problem: humans are being used as the communication router between knowledge and need.
+Each organization owns an isolated Pinecone vector store, partitioned by `orgId`, and all data ingestion passes through an Admin approval workflow before reaching the shared index, ensuring the knowledge base remains clean and verified. The system is built on a React/Vite frontend with Firebase handling authentication and role-based access control, Google Gemini 2.5 Flash as the core LLM for query generation, and Pinecone as the vector store backend. 
 
-**Project Borg eliminates the Coordination Tax** by replacing human-to-human friction with a network of autonomous AI proxy agents. Every employee gets a sovereign agent that knows their role, their department's documents, and their communication patterns. When one employee needs information from another, their agents negotiate the answer directly — metadata first, full disclosure only with human authorization — and surface the result in seconds, not hours.
-
-**We are not building a chatbot. We are building the connective tissue of the intelligent enterprise.**
-
-**PMF Signal:** The pain is universal and measurable. During development, we ran the product on our own team — every feature was validated by using it to answer real coordination questions (e.g., "What is our licensing policy?"). The latency went from 20-minute Slack threads to 4-second agent queries. That is product-market fit evidence produced during the build.
+The permission handshake between standard users and administrators is positioned as the core innovation — treating the vector database as a curated ledger of truth rather than an uncontrolled data dump. Multi-format ingestion supports PDF, DOCX, and raw text files, with modularity designed to allow future integrations with Google Drive or Notion. Project Borg targets a well-understood enterprise problem — knowledge fragmentation — and differentiates itself by sitting between generic enterprise search tools like SharePoint and unconstrained AI chat interfaces. The 24-hour execution plan is divided into clear 6-hour blocks with role-specific responsibilities assigned across a three-person team covering frontend, backend/IAM, and data/AI concerns.
 
 ---
 

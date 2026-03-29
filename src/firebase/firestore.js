@@ -13,7 +13,7 @@ export const getUserDoc = (uid) =>
   getDoc(doc(db, 'users', uid))
 
 export const updateUserDoc = (uid, data) =>
-  updateDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() })
+  setDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() }, { merge: true })
 
 export const updateUserDepartment = (uid, department) =>
   updateDoc(doc(db, 'users', uid), { department, updatedAt: serverTimestamp() })
@@ -38,13 +38,22 @@ export const createOrganization = async (userId, name, userEmail, userName) => {
     ownerId: userId,
     invites: [],
     members: {
-      [userId]: { role: 'admin', autoApprove: true, email: userEmail, displayName: userName || userEmail }
+      [String(userId)]: { 
+        role: 'admin', 
+        autoApprove: true, 
+        email: userEmail || null, 
+        displayName: userName || userEmail || "User"
+      }
     },
     createdAt: serverTimestamp(),
   })
-  await updateUserDoc(userId, { 
-    orgId: orgDoc.id
-  })
+  
+  // Use setDoc with merge to ensure the user doc exists
+  await setDoc(doc(db, 'users', userId), { 
+    orgId: orgDoc.id,
+    updatedAt: serverTimestamp()
+  }, { merge: true })
+
   return orgDoc.id
 }
 
@@ -62,7 +71,12 @@ export const joinOrganization = async (orgId, userId, email, userName) => {
   })
   await updateDoc(doc(db, 'organizations', orgId), {
     invites: arrayRemove(email.toLowerCase().trim()),
-    [`members.${userId}`]: { role: 'contributor', autoApprove: false, email, displayName: userName || email }
+    [`members.${userId}`]: { 
+      role: 'contributor', 
+      autoApprove: false, 
+      email: email || null, 
+      displayName: userName || email || "User"
+    }
   })
 }
 
@@ -335,6 +349,33 @@ export const subscribeToUserOrgData = (userId, orgId, callback) => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   })
 }
+
+// ══════════════════════════════════════════════════════════
+// INGESTION QUEUE (HITL)
+// ══════════════════════════════════════════════════════════
+
+export const subscribeToIngestionQueue = (orgId, callback) => {
+  if (!orgId) return () => callback([])
+  const q = query(
+    collection(db, 'ingestion_queue'),
+    where('org_id', '==', orgId),
+    orderBy('timestamp', 'desc')
+  )
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  }, (err) => {
+    console.error("Queue subscribe error:", err)
+    callback([])
+  })
+}
+
+export const deleteQueueItem = (reqId) =>
+  getDoc(doc(db, 'ingestion_queue', reqId)).then(snap => {
+    if (snap.exists()) {
+       const { deleteDoc } = import('firebase/firestore')
+       return deleteDoc(doc(db, 'ingestion_queue', reqId))
+    }
+  })
 
 // ════════════════════════════════════════════════════════
 // AGENT INTERACTIONS (@mention routing)

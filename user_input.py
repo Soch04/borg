@@ -149,8 +149,8 @@ def semantic_chunking(documents: list[Document]):
 
 def paragraph_chunking(documents: list[Document]):
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size= 1000, 
-        chunk_overlap=50,
+        chunk_size=1000, 
+        chunk_overlap=100,
         separators=["\n\n", "\n", " ", ""]
     )
     return text_splitter.split_documents(documents)
@@ -229,7 +229,14 @@ async def upload_text_endpoint(background_tasks: BackgroundTasks, text: str = Fo
             "org_id": org_id, "owner": owner, "title": "Text Import",
             "preview": text[:500] + ("..." if len(text) > 500 else "")
         }
-        return {"message": "Text queued for admin approval", "queued": True}
+        return {
+            "message": "Text queued for admin approval", 
+            "queued": True, 
+            "req_id": req_id, 
+            "title": "Text Import", 
+            "preview": UPLOAD_QUEUE[req_id]["preview"],
+            "type": "text"
+        }
 
 @app.post("/api/upload")
 async def upload_files_endpoint(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...), org_id: str = Form("global"), owner: str = Form("anonymous"), is_admin: str = Form("false")):
@@ -259,7 +266,14 @@ async def upload_files_endpoint(background_tasks: BackgroundTasks, files: List[U
             "title": f"File Import: {files[0].filename}" + (" and others" if len(files)>1 else ""),
             "preview": preview_text
         }
-        return {"message": "Files queued for admin approval", "queued": True}
+        return {
+            "message": "Files queued for admin approval", 
+            "queued": True,
+            "req_id": req_id,
+            "title": UPLOAD_QUEUE[req_id]["title"],
+            "preview": preview_text,
+            "type": "file"
+        }
 
 @app.get("/api/queue")
 async def get_queue(org_id: str):
@@ -412,8 +426,10 @@ async def process_org_query(sender_email: str, query_text: str, org_id: str, tar
         filter_dict = {"org_id": org_id}
         if target_owner: filter_dict["owner"] = target_owner
             
+        print(f"[RECOVERY] Initiating RAG retrieval for {sender_email} (Target Org: {org_id})...")
         results = await asyncio.to_thread(db.similarity_search, query_text, k=5, filter=filter_dict)
         context_blocks = "\n\n".join([doc.page_content for doc in results])
+        print(f"[RECOVERY] Retrieval complete. {len(results)} chunks identified. Generating synthesis...")
         
         prompt = f"""
         Answer the following question based ONLY on the provided context retrieved from the database. 

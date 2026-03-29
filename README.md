@@ -6,13 +6,13 @@
 
 ---
 
-## What It Does
+## 🚀 Project Overview
 
-Project Borg gives every employee in an organization a sovereign AI agent: a personalized proxy that knows their role, their department's approved documents, and their communication history. When an employee has a question, they query their agent — the agent searches the organization's curated knowledge base, synthesizes a grounded answer using retrieval-augmented generation, and returns source citations pointing to the exact documents it used.
+**Project Borg** is a centralized, role-gated knowledge management platform that uses Retrieval-Augmented Generation (RAG) to eliminate the **'Coordination Tax'** in modern organizations. It enables both individuals and corporate teams to query a curated, organization-scoped vector database using natural language, replacing fragmented SaaS searches and manual document retrieval with a single conversational interface. 
 
-**The core problem:** Knowledge workers at scaling companies lose 2.5+ hours per day hunting Slack threads, chasing subject-matter experts, and re-explaining context that already exists somewhere in the organization (IDC, 2023). This is not a productivity problem. It is an architecture problem: humans are being used as the communication router between knowledge and need.
+Each organization owns an isolated Pinecone vector store, partitioned by `orgId`, and all data ingestion passes through an Admin approval workflow before reaching the shared index, ensuring the knowledge base remains clean and verified. The system is built on a React/Vite frontend with Firebase handling authentication and role-based access control, Google Gemini 2.5 Flash as the core LLM for query generation, and Pinecone as the vector store backend. 
 
-**Borg's answer:** An org-scoped RAG query interface where the agent answers from approved, admin-gated documents — grounded, cited, and instantly available.
+The permission handshake between standard users and administrators is positioned as the core innovation — treating the vector database as a curated ledger of truth rather than an uncontrolled data dump. Multi-format ingestion supports PDF, DOCX, and raw text files, with modularity designed to allow future integrations with Google Drive or Notion. Project Borg targets a well-understood enterprise problem — knowledge fragmentation — and differentiates itself by sitting between generic enterprise search tools like SharePoint and unconstrained AI chat interfaces. The 24-hour execution plan is divided into clear 6-hour blocks with role-specific responsibilities assigned across a three-person team covering frontend, backend/IAM, and data/AI concerns.
 
 ---
 
@@ -54,8 +54,8 @@ Firebase Firestore (messages/{id})   Pinecone (borg-org-knowledge)
 | **Auth** | Firebase Authentication (email/password) |
 | **Database** | Firebase Firestore (6 collections, real-time listeners) |
 | **Vector DB** | Pinecone — 768-dim cosine, namespace-per-org |
-| **Embeddings** | Gemini `text-embedding-004` (768 dimensions) |
-| **LLM** | Gemini 2.5 Flash Lite (multi-turn history, system prompt) |
+| **Embeddings** | `all-mpnet-base-v2` (768 dimensions) |
+| **LLM** | Gemini 2.5 Flash (multi-turn history, system prompt) |
 | **Hosting** | Firebase Hosting (CDN) |
 | **Styling** | Vanilla CSS — Microsoft Fluent/Metro design system |
 
@@ -137,8 +137,8 @@ Firebase Firestore (messages/{id})   Pinecone (borg-org-knowledge)
 1. Admin uploads a document via the Admin Dashboard → saved to `orgData` with `status: "pending"`
 2. Admin approves → `ingestDocument()` is called
 3. Content split via recursive character chunking — **1,000 tokens per chunk, 200-token overlap**
-4. Each chunk embedded via Gemini `text-embedding-004` (768 dimensions)
-5. Chunks upserted to Pinecone namespace `orgId` with mandatory metadata:
+4. Each chunk embedded via `all-mpnet-base-v2` (768 dimensions)
+5. Chunks upserted to Pinecone namespace `orgId` (or filtered by metadata) with mandatory metadata:
    ```json
    { "is_approved": true, "adminId": "uid", "department": "string", "docId": "string", "title": "string" }
    ```
@@ -313,8 +313,8 @@ npx firebase-tools deploy
 | **Lines of application code** | ~8,500+ (excl. `node_modules`) |
 | **Git branches shipped** | `main`, `organization`, `theme`, `touch-ups`, `query-org` |
 | **CSS design tokens** | 20+ custom properties, light + dark mode |
-| **Vector dimensions** | 768 (Gemini `text-embedding-004`) |
-| **RAG chunk size** | 1,000 tokens, 200-token overlap |
+| **Vector dimensions** | 768 (`all-mpnet-base-v2`) |
+| **RAG chunk size** | 1,000 tokens / Semantic Chunking |
 | **Pinecone top-K** | 5 chunks per query |
 
 ---
