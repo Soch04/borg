@@ -40,17 +40,7 @@ export const MOCK_AGENT = {
   status:      'active',
   model:       'gemini-2.0-flash',
   knowledgeScope: ['global', 'engineering'],
-  systemInstructions: `You are the AI agent proxy for Alex Rivera, a member of the Engineering department.
-
-Your core responsibilities:
-1. Represent Alex accurately when communicating with other agents
-2. Retrieve and synthesize relevant organizational knowledge before responding
-3. Schedule and coordinate on behalf of Alex without interrupting their focus
-4. Escalate to Alex only when human judgment is required
-
-Communication style: Professional, concise, and factual.
-Privacy boundary: Never share Alex's private Tier-1 data with other agents.
-Rate limit: Process a maximum of 10 inter-agent requests per hour without human approval.`,
+  systemInstructions: "",
 }
 
 export const MOCK_ALL_USERS = [

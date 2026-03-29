@@ -74,7 +74,73 @@
   grid-column: 1 / -1;
 }
 
-.overview-info-card h3 { font-size: 1rem; margin-bottom: 1rem; }
+.dept-mgmt-card {
+  grid-column: 1 / -1;
+  padding: 1.5rem;
+}
+
+.dept-tag-manage-ui {
+  display: flex;
+  flex-direction: column;
+}
+
+.dept-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+
+.dept-tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem 0.3125rem 0.875rem;
+  background: rgba(94, 158, 240, 0.1);
+  border: 1px solid rgba(94, 158, 240, 0.3);
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-accent);
+}
+
+.tag-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(94, 158, 240, 0.15);
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.tag-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-danger, #ef4444);
+}
+
+.empty-tag-state {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.add-tag-group {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+}
+
+.add-tag-group .form-input {
+  flex: 1;
+}
+
 
 .health-items { display: flex; flex-direction: column; gap: 0.5rem; }
 

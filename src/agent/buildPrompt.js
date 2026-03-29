@@ -14,7 +14,7 @@
  * @param {object} agent — Firestore agents/{uid} document
  * @param {string} kbContext — knowledge base results (optional)
  */
-export function buildSystemPrompt(user, agent, kbContext = '') {
+export function buildSystemPrompt(user, agent, kbContext = '', directory = []) {
   const name  = user?.displayName ?? 'the user'
   const dept  = user?.department  ?? 'their department'
   const title = user?.title       ?? ''
@@ -22,6 +22,10 @@ export function buildSystemPrompt(user, agent, kbContext = '') {
 
   const knowledgeBlock = kbContext
     ? `\nKNOWLEDGE BASE CONTEXT (use only this, do not invent facts):\n${kbContext}`
+    : ''
+
+  const directoryBlock = directory.length > 0
+    ? `\nORGANIZATION DIRECTORY:\n${directory.map(d => `- ${d.displayName} (${d.department}): ${d.email}`).join('\n')}`
     : ''
 
   return `You are the dedicated AI proxy for ${name}${title ? `, ${title}` : ''}, a member of the ${dept} department.
@@ -37,7 +41,10 @@ CORE RULES:
 3. If you cannot find a confident answer in the provided context, output exactly: [ESCALATE: <brief topic>]
    Do not guess. Do not fill gaps with plausible-sounding information.
 4. Never share ${name}'s personal information with other agents unless explicitly instructed.
-5. Be concise and direct. Match the communication style set in the instructions above.
+5. If the user asks you to contact a colleague or send a message, output exactly this syntax: [MESSAGE_AGENT: recipient_email@domain.com] <your message to the agent>
+   Keep the internal message concise. Do not output anything else if you send a message.
+6. Be concise and direct. Match the communication style set in the instructions above.
+${directoryBlock}
 ${knowledgeBlock}`.trim()
 }
 
@@ -106,4 +113,20 @@ export function parseMonologue(text) {
     finalAnswer: finalMatch?.[1]?.trim()      ?? text,
     rawText:     text,
   }
+}
+
+/**
+ * Parse the [MESSAGE_AGENT: email] token from a Gemini response.
+ * Returns { isMessageRequest: bool, targetEmail: string|null, messageBody: string }
+ */
+export function parseMessageAgentCommand(text) {
+  const match = text.match(/\[MESSAGE_AGENT:\s*([^\]\s]+)\]([\s\S]*)/i)
+  if (match) {
+    return {
+      isMessageRequest: true,
+      targetEmail: match[1].trim(),
+      messageBody: match[2].trim()
+    }
+  }
+  return { isMessageRequest: false, targetEmail: null, messageBody: null }
 }

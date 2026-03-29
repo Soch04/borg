@@ -1,159 +1,175 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMessages } from '../hooks/useMessages'
-import { useConversations } from '../hooks/useConversations'
 import { useAuth } from '../context/AuthContext'
 import { Navigate } from 'react-router-dom'
+import { subscribeToOrgData } from '../firebase/firestore'
 import MessageBubble from '../components/messaging/MessageBubble'
 import MessageInput from '../components/messaging/MessageInput'
-import ChatSidebar from '../components/hub/ChatSidebar'
-import ChatThread from '../components/hub/ChatThread'
-import { RiRobot2Line, RiSignalWifiLine, RiMessage3Line } from 'react-icons/ri'
+import { RiRobot2Line, RiMessage3Line, RiFileTextLine, RiSearchEyeLine } from 'react-icons/ri'
 import './MessagingPage.css'
 
-const TABS = [
-  { id: 'personal', label: 'My Agent',   icon: RiRobot2Line      },
-  { id: 'hub',      label: 'Agent Hub',  icon: RiSignalWifiLine  },
-]
-
 export default function MessagingPage() {
-  const { agent } = useAuth()
-  const { messages, isTyping, isSending, sendMessage } = useMessages()
-  const {
-    directConvs, groupConvs,
-    selectedConvId, setSelectedConvId,
-    selectedConv, selectedMessages,
-    activeConvIds, unreadCounts, totalUnread,
-    streamingMsgId,
-  } = useConversations()
-
-  const [activeTab, setActiveTab] = useState('personal')
+  const { user, agent, loading, USE_MOCK } = useAuth()
+  const { messages, isTyping, isSending, sendMessage, clearChat } = useMessages()
+  
+  const [orgDocs, setOrgDocs] = useState([])
+  const [highlightedDocId, setHighlightedDocId] = useState(null)
   const feedRef = useRef(null)
 
-  // If no agent yet, redirect to the initialization flow
-  if (!agent) return <Navigate to="/bot-settings" replace />
+  // ── All hooks must be before any conditional returns ────────
+  useEffect(() => {
+    if (USE_MOCK || !user?.orgId) return
+    const unsub = subscribeToOrgData(user.orgId, setOrgDocs)
+    return () => unsub()
+  }, [user?.orgId, USE_MOCK])
 
   // Auto-scroll in personal chat
   useEffect(() => {
-    if (activeTab !== 'personal') return
     const el = feedRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, isTyping, activeTab])
+  }, [messages, isTyping])
+
+  // ── Conditional returns AFTER all hooks ─────────────────────
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+      <div className="spinner" />
+    </div>
+  )
+  if (!USE_MOCK && user && !agent) return <Navigate to="/bot-settings" replace />
+
+  const handleHighlightDoc = (docId) => {
+    setHighlightedDocId(docId)
+    // Scroll to the element
+    const el = document.getElementById(`doc-item-${docId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    // Remove highlight after a few seconds
+    setTimeout(() => setHighlightedDocId(null), 3000)
+  }
 
   return (
-    <div className="msg-page">
-
+    <div className="msg-page rag-query-page">
       {/* ── Page header ─────────────────────────────────────── */}
       <div className="msg-page-header">
-        <div>
-          <h1>
-            <RiMessage3Line style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
-            Messaging Board
-          </h1>
-          <p>Communicate with your agent or monitor inter-agent activity</p>
-        </div>
-
-        {/* Tab selector */}
-        <div className="tab-bar" role="tablist">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              id={`tab-${id}`}
-              role="tab"
-              aria-selected={activeTab === id}
-              className={`tab-item ${activeTab === id ? 'active' : ''}`}
-              onClick={() => setActiveTab(id)}
-              style={{ position: 'relative' }}
-            >
-              <Icon style={{ marginRight: '0.375rem', verticalAlign: 'middle' }} />
-              {label}
-              {/* Hub unread badge on the tab */}
-              {id === 'hub' && totalUnread > 0 && (
-                <span className="tab-unread-badge">
-                  {totalUnread > 9 ? '9+' : totalUnread}
-                </span>
-              )}
-            </button>
-          ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div>
+            <h1>
+              <RiSearchEyeLine style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
+              Query
+            </h1>
+            <p>Ask your agent questions about your Organization's Knowledge Base</p>
+          </div>
+          <button 
+            className="btn btn-sm btn-danger" 
+            onClick={clearChat}
+            disabled={messages.length === 0}
+            title="Clear current chat history"
+          >
+            Clear Chat
+          </button>
         </div>
       </div>
 
-      {/* ── Content area ────────────────────────────────────── */}
-      {activeTab === 'personal' ? (
-
-        /* ─ Personal chat (original) ─ */
-        <div className="msg-feed-wrapper">
-          {/* Feed header */}
-          <div className="msg-feed-header">
-            <div className="feed-agent-info">
-              <div className="feed-agent-avatar">
-                <RiRobot2Line />
-              </div>
-              <div>
-                <div className="feed-agent-name">{agent?.displayName ?? 'Your Agent'}</div>
-                <div className="feed-agent-model">{agent?.model ?? 'gemini-2.0-flash'} · RAG enabled</div>
-              </div>
-            </div>
-            <span className={`badge badge-${agent?.status ?? 'offline'}`}>
-              <span className="badge-dot" />
-              {agent?.status ?? 'offline'}
-            </span>
-          </div>
-
-          {/* Messages */}
-          <div className="msg-feed" ref={feedRef} role="log" aria-live="polite" aria-label="Message feed">
-            {messages.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-icon">💬</div>
-                <h3>Start a conversation</h3>
-                <p>Your agent is ready. Ask it anything!</p>
-              </div>
-            )}
-            {messages.map((msg, i) => (
-              <MessageBubble key={msg.id ?? i} message={msg} />
-            ))}
-            {isTyping && (
-              <div className="typing-indicator">
-                <div className="msg-avatar msg-avatar-bot"><RiRobot2Line /></div>
-                <div className="msg-bubble msg-bubble-bot" style={{ padding: '0.625rem 1rem' }}>
-                  <div className="msg-meta">
-                    <span className="msg-sender-name" style={{ color: 'var(--color-bot)' }}>
-                      {agent?.displayName ?? 'Your Agent'}
-                    </span>
-                  </div>
-                  <div className="typing-dots">
-                    <span className="typing-dot" />
-                    <span className="typing-dot" />
-                    <span className="typing-dot" />
-                  </div>
+      <div className="rag-layout">
+        {/* LEFT: Query Chat */}
+        <div className="rag-chat-pane">
+          <div className="msg-feed-wrapper" style={{ height: '100%', borderRight: '1px solid var(--border-color)' }}>
+            <div className="msg-feed-header">
+              <div className="feed-agent-info">
+                <div className="feed-agent-avatar">
+                  <RiRobot2Line />
+                </div>
+                <div>
+                  <div className="feed-agent-name">{agent?.displayName ?? 'Your Agent'}</div>
+                  <div className="feed-agent-model">{agent?.model ?? 'gemini-2.0-flash'} · RAG enabled</div>
                 </div>
               </div>
-            )}
+              <span className={`badge badge-${agent?.status ?? 'offline'}`}>
+                <span className="badge-dot" />
+                {agent?.status ?? 'offline'}
+              </span>
+            </div>
+
+            <div className="msg-feed" ref={feedRef} role="log" aria-live="polite">
+              {messages.length === 0 && (
+                <div className="empty-state">
+                  <div className="empty-state-icon">🧠</div>
+                  <h3>Query your Organization</h3>
+                  <p>I have access to all {orgDocs.length} indexed documents. What do you want to know?</p>
+                </div>
+              )}
+              {messages.map((msg, i) => (
+                <MessageBubble key={msg.id ?? i} message={msg} onHighlightDoc={handleHighlightDoc} />
+              ))}
+              {isTyping && (
+                <div className="typing-indicator">
+                  <div className="msg-avatar msg-avatar-bot"><RiRobot2Line /></div>
+                  <div className="msg-bubble msg-bubble-bot" style={{ padding: '0.625rem 1rem' }}>
+                    <div className="msg-meta">
+                      <span className="msg-sender-name" style={{ color: 'var(--color-bot)' }}>
+                        {agent?.displayName ?? 'Your Agent'}
+                      </span>
+                    </div>
+                    <div className="typing-dots">
+                      <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <MessageInput onSend={sendMessage} disabled={isTyping || isSending || !user?.orgId} />
           </div>
-
-          <MessageInput onSend={sendMessage} disabled={isTyping || isSending} />
         </div>
 
-      ) : (
-
-        /* ─ Agent Hub ─ 2-pane layout ─ */
-        <div className="hub-layout">
-          <ChatSidebar
-            directConvs={directConvs}
-            groupConvs={groupConvs}
-            selectedConvId={selectedConvId}
-            onSelect={setSelectedConvId}
-            activeConvIds={activeConvIds}
-            unreadCounts={unreadCounts}
-          />
-          <ChatThread
-            conv={selectedConv}
-            messages={selectedMessages}
-            isActive={selectedConv ? activeConvIds.includes(selectedConv.id) : false}
-            streamingMsgId={streamingMsgId}
-          />
+        {/* RIGHT: Document Viewer */}
+        <div className="rag-docs-pane" style={{ padding: '1.5rem', overflowY: 'auto' }}>
+          <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <RiFileTextLine /> Organization Knowledge Base
+          </h3>
+          
+          {!user?.orgId ? (
+             <div className="empty-state">
+               <p>Create or join an Organization to view and add documents.</p>
+             </div>
+          ) : orgDocs.length === 0 ? (
+            <div className="empty-state" style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--border-color)', borderRadius: '1rem' }}>
+              <p>No documents found in your organization. Go to the Organization tab to upload policies and FAQs.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {orgDocs.map(doc => {
+                const isHighlighted = highlightedDocId === doc.id
+                return (
+                  <div 
+                    key={doc.id} 
+                    id={`doc-item-${doc.id}`}
+                    className={`card-hover ${isHighlighted ? 'doc-highlight-pulse' : ''}`} 
+                    style={{ 
+                      padding: '1rem', 
+                      background: 'var(--color-bg-elevated)', 
+                      borderRadius: '0.75rem', 
+                      border: isHighlighted ? '2px solid var(--color-accent)' : '1px solid var(--border-color)',
+                      transition: 'all 0.3s ease',
+                      boxShadow: isHighlighted ? '0 0 15px var(--color-accent-2)' : 'none'
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <RiFileTextLine style={{ color: 'var(--color-accent)' }} />
+                      {doc.title}
+                    </div>
+                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{doc.department}</span>
+                      <span>{doc.fileType}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
-
-      )}
+      </div>
     </div>
   )
 }

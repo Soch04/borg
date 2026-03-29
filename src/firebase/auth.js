@@ -12,7 +12,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
  * Create a new user account.
  * Triggers: creates User doc + Agent Record in Firestore.
  */
-export async function signUp({ email, password, displayName, department, role = 'member' }) {
+export async function signUp({ email, password, displayName, department = 'Unassigned', role = 'member' }) {
   const credential = await createUserWithEmailAndPassword(auth, email, password)
   const user = credential.user
 
@@ -41,7 +41,7 @@ export async function signUp({ email, password, displayName, department, role = 
     status:     'active',   // 'active' | 'idle' | 'offline'
     // Default system instructions — customizable later
     systemInstructions: buildDefaultInstructions(displayName, department),
-    model:      'gemini-2.0-flash',
+    model:      'gemini-2.5-flash-lite',
     // RAG context scopes this agent is allowed to query
     knowledgeScope: ['global', department.toLowerCase()],
     // Memory — populated over time
@@ -80,15 +80,5 @@ export function subscribeToAuth(callback) {
 // ── Helpers ────────────────────────────────────────────────
 
 function buildDefaultInstructions(name, department) {
-  return `You are the AI agent proxy for ${name}, a member of the ${department} department.
-
-Your core responsibilities:
-1. Represent ${name} accurately when communicating with other agents
-2. Retrieve and synthesize relevant organizational knowledge before responding
-3. Schedule and coordinate on behalf of ${name} without interrupting their focus
-4. Escalate to ${name} only when human judgment is required
-
-Communication style: Professional, concise, and factual.
-Privacy boundary: Never share ${name}'s private Tier-1 data with other agents.
-Rate limit: Process a maximum of 10 inter-agent requests per hour without human approval.`
+  return ""
 }

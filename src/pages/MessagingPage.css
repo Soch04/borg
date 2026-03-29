@@ -1,4 +1,4 @@
-.msg-page {
+.msg-page, .rag-query-page {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -108,33 +108,35 @@
   .msg-feed { padding-left: 1rem; padding-right: 1rem; }
 }
 
-/* ── Agent Hub tab unread badge ── */
-.tab-unread-badge {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 9999px;
-  background: var(--color-accent);
-  color: #fff;
-  font-size: 0.5625rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 0.25rem;
-  box-shadow: 0 0 6px rgba(94, 158, 240, 0.6);
-  animation: pulse-live 2s ease-in-out infinite;
-}
-
-/* ── Hub layout (2-pane: sidebar + thread) ── */
-.hub-layout {
+/* ── RAG Layout (2-pane) ── */
+.rag-layout {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   background: var(--color-bg);
+}
+
+.rag-chat-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rag-docs-pane {
+  width: 380px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .rag-docs-pane {
+    display: none; /* Hide docs pane on small screens */
+  }
 }
 
 /* ── Typing indicator in personal chat ── */

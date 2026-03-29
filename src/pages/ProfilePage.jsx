@@ -1,11 +1,25 @@
 import { useAuth } from '../context/AuthContext'
 import { useApp } from '../context/AppContext'
-import { RiUser3Line, RiLinkedinBoxFill, RiCalendar2Line, RiMailLine, RiBuildingLine, RiRobot2Line, RiShieldLine, RiBrainLine } from 'react-icons/ri'
+import { RiUser3Line, RiLinkedinBoxFill, RiCalendar2Line, RiMailLine, RiBuildingLine, RiRobot2Line, RiShieldLine, RiBrainLine, RiCheckLine } from 'react-icons/ri'
+import { useState, useEffect } from 'react'
+import { subscribeToOrganization, updateUserDepartment } from '../firebase/firestore'
+import { db } from '../firebase/config'
+import { updateDoc, doc } from 'firebase/firestore'
 import './ProfilePage.css'
 
 export default function ProfilePage() {
   const { user, agent, isAdmin } = useAuth()
   const { addToast } = useApp()
+  const [availableDepts, setAvailableDepts] = useState([])
+  const [isUpdating, setIsUpdating] = useState(false)
+
+  useEffect(() => {
+    if (!user?.orgId) return
+    const unsub = subscribeToOrganization(user.orgId, (org) => {
+      setAvailableDepts(org?.departments ?? [])
+    })
+    return () => unsub()
+  }, [user?.orgId])
 
   const initials = user?.displayName
     ?.split(' ').map(n => n[0]).join('').toUpperCase() ?? '??'
@@ -14,6 +28,26 @@ export default function ProfilePage() {
     addToast('LinkedIn OAuth coming in Phase 2 — API key required.', 'info')
   const handleCalendar = () =>
     addToast('Google Calendar integration coming in Phase 2.', 'info')
+
+  const handleDeptChange = async (e) => {
+    const newDept = e.target.value
+    if (!newDept || newDept === user?.department) return
+    
+    setIsUpdating(true)
+    try {
+      await updateUserDepartment(user.uid, newDept)
+      // Also sync it to their Agent doc for the query scope
+      await updateDoc(doc(db, 'agents', user.uid), {
+        department: newDept,
+        knowledgeScope: ['global', newDept.toLowerCase()]
+      })
+      addToast(`Department updated to ${newDept}`, 'success')
+    } catch (err) {
+      addToast('Failed to update department', 'error')
+    } finally {
+      setIsUpdating(false)
+    }
+  }
 
   return (
     <div className="page-content">
@@ -44,7 +78,18 @@ export default function ProfilePage() {
             <h2 className="profile-name">{user?.displayName ?? 'Unknown User'}</h2>
             <div className="profile-dept">
               <RiBuildingLine />
-              {user?.department ?? 'No department'}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
+                <select 
+                  className="form-select profile-dept-select" 
+                  value={user?.department || ''}
+                  onChange={handleDeptChange}
+                  disabled={isUpdating}
+                >
+                  <option value="">Select Department...</option>
+                  {availableDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                {isUpdating && <div className="spinner-xs" />}
+              </div>
             </div>
 
             <div className="profile-meta">
@@ -136,24 +181,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* ── Activity summary (placeholder) ── */}
-        <div className="card activity-card">
-          <h3 className="card-section-title">Recent Activity</h3>
-          <div className="activity-list">
-            {[
-              { label: 'Messages processed today',     value: '12', icon: '💬' },
-              { label: 'Inter-agent requests handled', value: '4',  icon: '🤖' },
-              { label: 'KB queries made',              value: '9',  icon: '📚' },
-              { label: 'Meetings scheduled',           value: '2',  icon: '📅' },
-            ].map(({ label, value, icon }) => (
-              <div key={label} className="activity-item">
-                <span className="activity-icon">{icon}</span>
-                <span className="activity-label">{label}</span>
-                <span className="activity-value">{value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+
       </div>
     </div>
     </div>

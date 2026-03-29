@@ -43,7 +43,6 @@ export default function AuthPage() {
     displayName: '',
     email: '',
     password: '',
-    department: '',
   })
 
   const handleLogin = async (e) => {
@@ -62,11 +61,6 @@ export default function AuthPage() {
 
   const handleSignUp = async (e) => {
     e.preventDefault()
-    setAlert(null)
-    if (!signupForm.department) {
-      showAlert('Please select a department.')
-      return
-    }
     setLoading(true)
     try {
       await signUp(signupForm)
@@ -206,19 +200,6 @@ export default function AuthPage() {
                 required
                 autoComplete="email"
               />
-            </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="signup-dept">Department</label>
-              <select
-                id="signup-dept"
-                className="form-select"
-                value={signupForm.department}
-                onChange={e => setSignupForm(f => ({ ...f, department: e.target.value }))}
-                required
-              >
-                <option value="">Select your department...</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="signup-password">Password</label>

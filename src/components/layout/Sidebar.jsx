@@ -10,9 +10,8 @@ import {
 import './Sidebar.css'
 
 const baseNavItems = [
-  { to: '/messaging',    icon: RiMessage3Line, label: 'Messaging' },
+  { to: '/messaging',    icon: RiMessage3Line, label: 'Query' },
   { to: '/bot-settings', icon: RiRobot2Line,   label: 'My Agent' },
-  { to: '/user-input',   icon: RiDatabase2Line, label: 'My Data' },
   { to: '/profile',      icon: RiUser3Line,    label: 'Profile' },
   { to: '/org',          icon: RiBuildingLine, label: 'Organization', hidden: HIDE_ORG_DATA_UI },
 ]
@@ -20,7 +19,7 @@ const baseNavItems = [
 const navItems = baseNavItems.filter(item => !item.hidden)
 
 export default function Sidebar() {
-  const { user, agent, isAdmin } = useAuth()
+  const { user, agent, isOrgAdmin } = useAuth()
   const navigate = useNavigate()
 
   const handleSignOut = async () => {
@@ -60,8 +59,8 @@ export default function Sidebar() {
           <span className="sidebar-user-name">{user?.displayName ?? 'User'}</span>
           <span className="sidebar-user-dept">{user?.department ?? ''}</span>
         </div>
-        {isAdmin && (
-          <span className="sidebar-admin-badge" title="Admin">A</span>
+        {isOrgAdmin && (
+          <span className="sidebar-admin-badge" title="Org Admin">A</span>
         )}
       </div>
 
@@ -93,7 +92,7 @@ export default function Sidebar() {
           </NavLink>
         ))}
 
-        {isAdmin && (
+        {isOrgAdmin && (
           <>
             <div className="sidebar-section-label">Admin</div>
             <NavLink

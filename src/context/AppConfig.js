@@ -8,7 +8,7 @@ export const ENABLE_INTERNAL_MONOLOGUE = import.meta.env.VITE_ENABLE_INTERNAL_MO
 export const HIDE_ORG_DATA_UI         = import.meta.env.VITE_HIDE_ORG_DATA_UI          === 'true'
 
 export const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? ''
-export const GEMINI_MODEL   = 'gemini-2.0-flash'
+export const GEMINI_MODEL   = 'gemini-2.5-flash-lite'
 
 export const PINECONE_API_KEY   = import.meta.env.VITE_PINECONE_API_KEY   ?? ''
 export const PINECONE_ENV       = import.meta.env.VITE_PINECONE_ENVIRONMENT ?? ''

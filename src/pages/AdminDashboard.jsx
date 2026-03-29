@@ -1,14 +1,21 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
+import { useAuth } from '../context/AuthContext'
 import {
-  MOCK_BOT_TO_BOT_ALL, MOCK_ORG_DATA, MOCK_ADMIN_STATS,
-  MOCK_ALL_AGENTS, DEPARTMENTS, MOCK_ALL_USERS
+  DEPARTMENTS
 } from '../data/mockData'
-import { updateOrgDataStatus, updateUserRole } from '../firebase/firestore'
+import {
+  updateOrgDataStatus, getOrgMembers, subscribeToAllOrgInteractions,
+  subscribeToBotLogs, runSystemSanitization, updateOrgDepartments,
+  subscribeToOrganization, subscribeToOrgData
+} from '../firebase/firestore'
+import { ingestDocument } from '../lib/rag'
+import { db } from '../firebase/config'
+import { getDoc, doc } from 'firebase/firestore'
 import {
   RiShieldLine, RiArrowLeftRightLine, RiDatabase2Line,
-  RiRobot2Line, RiCheckLine, RiCloseLine, RiTimeLine,
-  RiFilterLine, RiGroupLine,
+  RiRobot2Line, RiCheckLine, RiCloseLine,
+  RiFilterLine, RiGroupLine, RiPulseLine, RiBuildingLine
 } from 'react-icons/ri'
 import './AdminDashboard.css'
 
@@ -17,96 +24,175 @@ const TABS = [
   { id: 'dept-logs',  label: 'Dept Monitor',    icon: RiArrowLeftRightLine },
   { id: 'knowledge',  label: 'Knowledge Base',  icon: RiDatabase2Line     },
   { id: 'agents',     label: 'Agent Network',   icon: RiRobot2Line        },
-  { id: 'users',      label: 'User Directory',  icon: RiGroupLine         },
 ]
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview')
   const [deptFilter, setDeptFilter] = useState('all')
-  const [orgData, setOrgData]     = useState(MOCK_ORG_DATA)
+  const [orgData, setOrgData]       = useState([])
+  const [currentOrg, setCurrentOrg]   = useState(null)
+  const [members, setMembers]         = useState([])
+  const { user, isOrgAdmin } = useAuth()
   const { addToast } = useApp()
 
-  const filteredLogs = deptFilter === 'all'
-    ? MOCK_BOT_TO_BOT_ALL
-    : MOCK_BOT_TO_BOT_ALL.filter(m => m.department === deptFilter)
+  // Real-time Organization fetch
+  useEffect(() => {
+    if (!user?.orgId) return
+    const unsub = subscribeToOrganization(user.orgId, setCurrentOrg)
+    return () => unsub()
+  }, [user?.orgId])
+
+  // Real-time Organization Knowledge Base fetch
+  useEffect(() => {
+    if (!user?.orgId) return
+    const unsub = subscribeToOrgData(user.orgId, setOrgData)
+    return () => unsub()
+  }, [user?.orgId])
+
+  // Org members for accurate agent count
+  useEffect(() => {
+    if (!user?.orgId) return
+    getOrgMembers(user.orgId).then(setMembers)
+  }, [user?.orgId])
+
+  const handleApproveDoc = async (id) => {
+    try {
+      // 1. Get the document content from Firestore
+      const docSnap = await getDoc(doc(db, 'orgData', id));
+      if (!docSnap.exists()) throw new Error('Document not found');
+      const docData = docSnap.data();
+
+      // 2. Perform RAG Ingestion with mandatory metadata
+      await ingestDocument(user.orgId, {
+        id,
+        title:      docData.title,
+        text:       docData.content || '',
+        department: docData.department,
+        adminId:    user.uid // "admin_ID tag" as requested
+      });
+
+      // 3. Mark as approved in Firestore
+      await updateOrgDataStatus(id, 'approved')
+      addToast('Document approved & ingested into Org Knowledge Base', 'success')
+    } catch (err) {
+      console.error('Ingestion error:', err);
+      addToast('RAG Ingestion failed: ' + err.message, 'error')
+    }
+  }
 
   const handleOrgDataStatus = async (id, status) => {
-    setOrgData(prev => prev.map(d => d.id === id ? { ...d, status } : d))
     try {
       await updateOrgDataStatus(id, status)
-    } catch {
-      // mock mode — already updated local state
+      addToast(`Document ${status}`, 'success')
+    } catch (err) {
+      addToast('Failed to update status', 'error')
     }
-    addToast(`Document ${status === 'approved' ? 'approved' : 'rejected'}`, status === 'approved' ? 'success' : 'error')
   }
 
   return (
     <div className="page-content">
-    <div className="admin-page animate-fade-in">
-      {/* Header */}
-      <div className="admin-header">
-        <div className="admin-badge-wrap">
-          <div className="admin-header-icon">
-            <RiShieldLine />
+      <div className="admin-page animate-fade-in">
+        {/* Header */}
+        <div className="admin-header">
+          <div className="admin-badge-wrap">
+            <div className="admin-header-icon">
+              <RiShieldLine />
+            </div>
+            <div>
+              <h1>Admin Dashboard</h1>
+              <p>
+                {isOrgAdmin ? 'Global Network Monitor' : `Organization Monitor: ${currentOrg?.name ?? '...'}`}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1>Admin Dashboard</h1>
-            <p>Monitor agent activity, manage knowledge, and oversee the Borg network</p>
-          </div>
+          <span className="badge badge-approved">
+            <span className="badge-dot" />
+            Admin Access
+          </span>
         </div>
-        <span className="badge badge-approved">
-          <span className="badge-dot" />
-          Admin Access
-        </span>
-      </div>
 
-      {/* Tab navigation */}
-      <div className="tab-bar admin-tabs" role="tablist">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            id={`admin-tab-${id}`}
-            role="tab"
-            aria-selected={activeTab === id}
-            className={`tab-item ${activeTab === id ? 'active' : ''}`}
-            onClick={() => setActiveTab(id)}
-          >
-            <Icon style={{ marginRight: '0.375rem', verticalAlign: 'middle' }} />
-            {label}
-          </button>
-        ))}
-      </div>
+        {/* Tab navigation */}
+        <div className="tab-bar admin-tabs" role="tablist">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              id={`admin-tab-${id}`}
+              role="tab"
+              aria-selected={activeTab === id}
+              className={`tab-item ${activeTab === id ? 'active' : ''}`}
+              onClick={() => setActiveTab(id)}
+            >
+              <Icon style={{ marginRight: '0.375rem', verticalAlign: 'middle' }} />
+              {label}
+            </button>
+          ))}
+        </div>
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && <OverviewTab />}
-      {activeTab === 'dept-logs' && (
-        <DeptMonitorTab
-          logs={filteredLogs}
-          deptFilter={deptFilter}
-          setDeptFilter={setDeptFilter}
-        />
-      )}
-      {activeTab === 'knowledge' && (
-        <KnowledgeBaseTab orgData={orgData} onUpdateStatus={handleOrgDataStatus} />
-      )}
-      {activeTab === 'agents' && <AgentNetworkTab />}
-      {activeTab === 'users' && <UserManagementTab />}
-    </div>
+        {/* Tab Content */}
+        {activeTab === 'overview' && <OverviewTab currentOrg={currentOrg} orgData={orgData} members={members} />}
+        {activeTab === 'dept-logs' && (
+          <DeptMonitorTab 
+            deptFilter={deptFilter} 
+            setDeptFilter={setDeptFilter} 
+            availableDepts={currentOrg?.departments ?? []}
+          />
+        )}
+        {activeTab === 'knowledge' && (
+          <KnowledgeBaseTab 
+            orgData={orgData} 
+            onApprove={handleApproveDoc} 
+            onUpdateStatus={handleOrgDataStatus}
+          />
+        )}
+        {activeTab === 'agents' && <AgentNetworkTab availableDepts={currentOrg?.departments ?? []} />}
+      </div>
     </div>
   )
 }
 
 /* ── Overview Tab ── */
-function OverviewTab() {
-  const stats = MOCK_ADMIN_STATS
+function OverviewTab({ currentOrg, orgData, members }) {
+  const { addToast } = useApp()
+  const [newDept, setNewDept] = useState('')
+
+  // ── Real statistics derived from live Firestore data ──
+  const totalAgents    = members.length
+  const activeAgents   = members.filter(m => m.status === 'active').length
+  const pendingDocs    = orgData.filter(d => d.status === 'pending').length
+  const approvedDocs   = orgData.filter(d => d.status === 'approved').length
+  const deptCount      = (currentOrg?.departments || []).length
+
+  const handleAddDept = async () => {
+    if (!newDept.trim() || !currentOrg) return
+    const updated = [...(currentOrg.departments || []), newDept.trim()]
+    try {
+      await updateOrgDepartments(currentOrg.id, updated)
+      setNewDept('')
+      addToast(`Department '${newDept}' added`, 'success')
+    } catch (err) {
+      addToast('Failed to add department', 'error')
+    }
+  }
+
+  const handleRemoveDept = async (dept) => {
+    if (!currentOrg) return
+    const updated = (currentOrg.departments || []).filter(d => d !== dept)
+    try {
+      await updateOrgDepartments(currentOrg.id, updated)
+      addToast(`Department '${dept}' removed`, 'success')
+    } catch (err) {
+      addToast('Failed to remove department', 'error')
+    }
+  }
+
   return (
     <div className="overview-grid animate-fade-in">
       {[
-        { label: 'Total Agents',      value: stats.totalAgents,     icon: '🤖', color: 'var(--color-accent)' },
-        { label: 'Active Now',        value: stats.activeAgents,    icon: '✅', color: 'var(--color-success)' },
-        { label: 'Messages (24h)',    value: stats.messagesLast24h, icon: '💬', color: 'var(--color-accent-2)' },
-        { label: 'Pending KB Items',  value: stats.pendingOrgData,  icon: '⏳', color: 'var(--color-warning)' },
-        { label: 'Departments',       value: stats.deptCount,       icon: '🏢', color: 'var(--color-bot)' },
+        { label: 'Total Members',    value: totalAgents,   icon: '🤖', color: 'var(--color-accent)' },
+        { label: 'Active Members',   value: activeAgents,  icon: '✅', color: 'var(--color-success)' },
+        { label: 'Docs Approved',    value: approvedDocs,  icon: '📚', color: 'var(--color-accent-2)' },
+        { label: 'Pending Review',   value: pendingDocs,   icon: '⏳', color: 'var(--color-warning)' },
+        { label: 'Departments',      value: deptCount,     icon: '🏢', color: 'var(--color-bot)' },
       ].map(({ label, value, icon, color }) => (
         <div key={label} className="stat-card card card-hover">
           <div className="stat-card-icon" style={{ '--stat-color': color }}>
@@ -117,31 +203,80 @@ function OverviewTab() {
         </div>
       ))}
 
-      <div className="card overview-info-card">
-        <h3>System Health</h3>
-        <div className="health-items">
-          {[
-            { label: 'Firestore', status: 'operational' },
-            { label: 'Gemini 2.0 Flash (Routing)', status: 'operational' },
-            { label: 'Gemini 2.0 Pro (Synthesis)', status: 'operational' },
-            { label: 'Pinecone Vector DB', status: 'not-configured', note: 'Add API key' },
-            { label: 'Redis Pub/Sub', status: 'not-configured', note: 'Phase 2' },
-          ].map(({ label, status, note }) => (
-            <div key={label} className="health-item">
-              <span className={`health-dot health-${status}`} />
-              <span className="health-label">{label}</span>
-              {note && <span className="health-note">{note}</span>}
-              <span className="health-status">{status === 'operational' ? 'Operational' : 'Not Configured'}</span>
-            </div>
-          ))}
+      {/* Department Management */}
+      <div className="card dept-mgmt-card animate-fade-in">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '1rem' }}>
+          <RiBuildingLine style={{ fontSize: '1.25rem', color: 'var(--color-accent)' }} />
+          <h3>Department Tags</h3>
         </div>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+          Manage functional groups for your organization. Users select these in their profile.
+        </p>
+
+        <div className="dept-tag-manage-ui">
+          <div className="dept-tag-list">
+            {(currentOrg?.departments || []).length === 0 ? (
+              <div className="empty-tag-state">No departments defined.</div>
+            ) : (
+              currentOrg.departments.map(d => (
+                <div key={d} className="dept-tag-item">
+                  <span>{d}</span>
+                  <button className="tag-remove-btn" onClick={() => handleRemoveDept(d)}>
+                    <RiCloseLine />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="divider" style={{ margin: '1.25rem 0' }} />
+          <div className="add-tag-group">
+            <input
+              className="form-input"
+              placeholder="e.g. Engineering"
+              value={newDept}
+              onChange={e => setNewDept(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddDept()}
+            />
+            <button className="btn btn-secondary" onClick={handleAddDept}>Add Tag</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Database Sanitization Tool */}
+      <div className="card sanitize-card animate-fade-in" style={{ gridColumn: 'span 2' }}>
+        <h3>🚀 Database Sanitization</h3>
+        <p>Prune all unauthorized user accounts and purge message history. <strong>Irreversible action.</strong></p>
+        <button 
+          className="btn btn-lg btn-danger" 
+          style={{ marginTop: '1.5rem' }}
+          onClick={async () => {
+             if (window.confirm("CRITICAL: This will delete ALL users (except authorized admins) and purge ALL conversation history. Proceed?")) {
+               try {
+                 await runSystemSanitization();
+                 alert("Sanitization Complete!");
+                 window.location.reload();
+               } catch (e) {
+                 alert("Sanitization failed: " + e.message);
+               }
+             }
+          }}
+        >
+          Run System Sanitization
+        </button>
       </div>
     </div>
   )
 }
 
 /* ── Dept Monitor Tab ── */
-function DeptMonitorTab({ logs, deptFilter, setDeptFilter }) {
+function DeptMonitorTab({ deptFilter, setDeptFilter, availableDepts }) {
+  const [logs, setLogs] = useState([])
+
+  useEffect(() => {
+    const unsub = subscribeToBotLogs(deptFilter, setLogs)
+    return () => unsub()
+  }, [deptFilter])
+
   return (
     <div className="dept-monitor animate-fade-in">
       <div className="dept-filter-bar">
@@ -152,7 +287,7 @@ function DeptMonitorTab({ logs, deptFilter, setDeptFilter }) {
             className={`dept-chip ${deptFilter === 'all' ? 'active' : ''}`}
             onClick={() => setDeptFilter('all')}
           >All</button>
-          {[...new Set(MOCK_BOT_TO_BOT_ALL.map(m => m.department))].map(dept => (
+          {(availableDepts || DEPARTMENTS).map(dept => (
             <button
               key={dept}
               className={`dept-chip ${deptFilter === dept ? 'active' : ''}`}
@@ -162,36 +297,17 @@ function DeptMonitorTab({ logs, deptFilter, setDeptFilter }) {
         </div>
       </div>
 
-      <div className="dept-log-count">
-        Showing <strong>{logs.length}</strong> inter-agent messages
-        {deptFilter !== 'all' && ` in ${deptFilter}`}
-      </div>
-
       <div className="dept-logs-list">
         {logs.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📭</div>
-            <h3>No logs for this department</h3>
+            <p>No activity detected.</p>
           </div>
         ) : (
           logs.map((log, i) => (
             <div key={log.id ?? i} className="dept-log-item card">
               <div className="log-item-header">
-                <div className="log-route">
-                  <span className="log-agent">{log.senderName}</span>
-                  <RiArrowLeftRightLine className="log-arrow" />
-                  <span className="log-agent">{log.recipientName}</span>
-                </div>
-                <div className="log-meta">
-                  {log.department && (
-                    <span className="dept-tag">{log.department}</span>
-                  )}
-                  <span className="log-time">
-                    {log.timestamp
-                      ? new Date(log.timestamp?.toDate?.() ?? log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : '—'}
-                  </span>
-                </div>
+                <div>{log.senderName} ➔ {log.recipientName}</div>
+                <div>{log.department}</div>
               </div>
               <pre className="log-content">{log.content}</pre>
             </div>
@@ -203,177 +319,101 @@ function DeptMonitorTab({ logs, deptFilter, setDeptFilter }) {
 }
 
 /* ── Knowledge Base Manager Tab ── */
-function KnowledgeBaseTab({ orgData, onUpdateStatus }) {
-  const pending  = orgData.filter(d => d.status === 'pending')
+function KnowledgeBaseTab({ orgData, onApprove, onUpdateStatus }) {
+  const [interactions, setInteractions] = useState([])
+  const { user } = useAuth()
+  const { addToast } = useApp()
+
+  useEffect(() => {
+    if (!user?.orgId) return
+    const unsub = subscribeToAllOrgInteractions(setInteractions)
+    return () => unsub()
+  }, [user?.orgId])
+
+  const pending = orgData.filter(d => d.status === 'pending')
   const approved = orgData.filter(d => d.status === 'approved')
-  const rejected = orgData.filter(d => d.status === 'rejected')
 
   return (
     <div className="kb-tab animate-fade-in">
-      <div className="kb-stats-row">
-        <div className="kb-stat">
-          <span className="kb-stat-value">{approved.length}</span>
-          <span className="kb-stat-label">Approved</span>
-        </div>
-        <div className="kb-stat">
-          <span className="kb-stat-value" style={{ color: 'var(--color-warning)' }}>{pending.length}</span>
-          <span className="kb-stat-label">Pending Review</span>
-        </div>
-        <div className="kb-stat">
-          <span className="kb-stat-value" style={{ color: 'var(--color-danger)' }}>{rejected.length}</span>
-          <span className="kb-stat-label">Rejected</span>
-        </div>
+      <div className="kb-actions-header" style={{ marginBottom: '2rem' }}>
+        <button className="btn btn-primary" onClick={() => addToast('Uploader triggered.', 'info')}>
+          <RiDatabase2Line style={{ marginRight: '0.5rem' }} /> Universal Upload
+        </button>
       </div>
 
-      {pending.length > 0 && (
-        <>
-          <h4 className="kb-section-label">⏳ Pending Review</h4>
-          {pending.map(item => (
-            <KBItem key={item.id} item={item} onUpdateStatus={onUpdateStatus} showActions />
-          ))}
-        </>
-      )}
+      <h4 className="kb-section-label"><RiPulseLine /> Dynamic RAG Activity feed</h4>
+      <div className="kb-interaction-feed">
+        {interactions.slice(0, 5).map(item => (
+          <div key={item.id} className="interaction-feed-item card">
+            <div><strong>{item.sender_name}</strong> requested knowledge</div>
+            <div className="interaction-content">"{item.content}"</div>
+          </div>
+        ))}
+      </div>
 
-      <h4 className="kb-section-label">✅ Approved — Live in Knowledge Base</h4>
-      {approved.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No approved items yet.</p> : (
-        approved.map(item => (
-          <KBItem key={item.id} item={item} onUpdateStatus={onUpdateStatus} />
-        ))
-      )}
+      <div className="divider" style={{ margin: '2rem 0' }} />
+
+      <h4 className="kb-section-label">⏳ Documents Under Review</h4>
+      {pending.length === 0 ? <p>No documents pending review.</p> : pending.map(item => (
+        <KBItem key={item.id} item={item} onApprove={onApprove} onReject={() => onUpdateStatus(item.id, 'rejected')} showActions />
+      ))}
+
+      <h4 className="kb-section-label">✅ Live Knowledge Base Documents</h4>
+      {approved.map(item => (
+        <KBItem key={item.id} item={item} />
+      ))}
     </div>
   )
 }
 
-function KBItem({ item, onUpdateStatus, showActions }) {
-  const { id, title, content, department, uploaderName, status, fileType, createdAt } = item
-  const date = createdAt?.toDate?.()?.toLocaleDateString() ?? '—'
-
+function KBItem({ item, onApprove, onReject, showActions }) {
   return (
-    <div className="kb-item card card-hover">
-      <div className="kb-item-header">
-        <div className="kb-item-info">
-          <div className="kb-item-title">{title}</div>
-          <div className="kb-item-meta">
-            <span>{department}</span> · <span>{fileType}</span> · <span>by {uploaderName}</span> · <span>{date}</span>
+    <div className="kb-item card card-hover" style={{ marginBottom: '1rem' }}>
+      <div className="kb-item-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div className="kb-item-title" style={{ fontWeight: 600 }}>{item.title}</div>
+          <div className="kb-item-meta" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+            {item.department} · {item.fileType} · by {item.uploaderName}
           </div>
         </div>
-        <div className="kb-item-actions">
-          <span className={`badge badge-${status}`}>{status}</span>
+        <div className="kb-item-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+          <span className={`badge badge-${item.status}`}>{item.status}</span>
           {showActions && (
             <>
-              <button
-                id={`btn-approve-${id}`}
-                className="btn btn-sm"
-                style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--color-success)', border: '1px solid rgba(16,185,129,0.2)' }}
-                onClick={() => onUpdateStatus(id, 'approved')}
-              >
-                <RiCheckLine /> Approve
-              </button>
-              <button
-                id={`btn-reject-${id}`}
-                className="btn btn-sm btn-danger"
-                onClick={() => onUpdateStatus(id, 'rejected')}
-              >
-                <RiCloseLine /> Reject
-              </button>
+              <button className="btn btn-sm" onClick={() => onApprove(item.id)}><RiCheckLine /> Approve</button>
+              <button className="btn btn-sm btn-danger" onClick={onReject}><RiCloseLine /> Reject</button>
             </>
           )}
         </div>
       </div>
-      {content && (
-        <div className="kb-item-preview">{content.substring(0, 160)}{content.length > 160 ? '...' : ''}</div>
-      )}
     </div>
   )
 }
 
 /* ── Agent Network Tab ── */
-function AgentNetworkTab() {
-  const [deptFilter, setDeptFilter] = useState('all')
-  const filtered = deptFilter === 'all'
-    ? MOCK_ALL_AGENTS
-    : MOCK_ALL_AGENTS.filter(a => a.department === deptFilter)
+function AgentNetworkTab({ availableDepts }) {
+  const { user } = useAuth()
+  const [agents, setAgents] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!user?.orgId) return
+    getOrgMembers(user.orgId).then(members => {
+      setAgents(members)
+      setLoading(false)
+    })
+  }, [user?.orgId])
 
   return (
     <div className="agent-network animate-fade-in">
-      <div className="dept-filter-bar">
-        <RiGroupLine className="filter-icon" />
-        <div className="dept-chips">
-          <button className={`dept-chip ${deptFilter === 'all' ? 'active' : ''}`} onClick={() => setDeptFilter('all')}>All</button>
-          {[...new Set(MOCK_ALL_AGENTS.map(a => a.department))].map(dept => (
-            <button key={dept} className={`dept-chip ${deptFilter === dept ? 'active' : ''}`} onClick={() => setDeptFilter(dept)}>{dept}</button>
-          ))}
-        </div>
-      </div>
-
       <div className="agent-network-grid">
-        {filtered.map(agent => (
-          <div key={agent.userId} className="agent-network-card card card-hover">
-            <div className="agent-network-avatar">
-              <RiRobot2Line />
-            </div>
-            <div className="agent-network-info">
-              <div className="agent-network-name">{agent.displayName}</div>
-              <div className="agent-network-dept">{agent.department}</div>
-            </div>
-            <span className={`badge badge-${agent.status}`}>
-              <span className="badge-dot" />
-              {agent.status}
-            </span>
+        {loading ? <div className="spinner" /> : agents.map(agent => (
+          <div key={agent.uid} className="agent-network-card card">
+             <RiRobot2Line className="agent-network-avatar" />
+             <div>{agent.displayName}'s Agent</div>
+             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{agent.department}</div>
           </div>
         ))}
-      </div>
-    </div>
-  )
-}
-
-/* ── User Management Tab ── */
-function UserManagementTab() {
-  const { addToast } = useApp()
-  const [users, setUsers] = useState(MOCK_ALL_USERS)
-
-  const handleRoleChange = async (uid, newRole) => {
-    setUsers(users.map(u => u.uid === uid ? { ...u, role: newRole } : u))
-    try {
-      await updateUserRole(uid, newRole)
-    } catch {
-      // mock mode silently proceeds
-    }
-    addToast(`Role dynamically updated to ${newRole}`, 'success')
-  }
-
-  return (
-    <div className="agent-network animate-fade-in">
-      <div className="agent-network-grid" style={{ gridTemplateColumns: '1fr' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--bg-surface)', borderRadius: '8px', overflow: 'hidden' }}>
-          <thead>
-            <tr style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>
-              <th style={{ padding: '16px' }}>Name</th>
-              <th style={{ padding: '16px' }}>Email</th>
-              <th style={{ padding: '16px' }}>Department</th>
-              <th style={{ padding: '16px' }}>Privilege Level</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(user => (
-              <tr key={user.uid} style={{ borderTop: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
-                <td style={{ padding: '16px', fontWeight: '500' }}>{user.displayName}</td>
-                <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{user.email}</td>
-                <td style={{ padding: '16px' }}>{user.department}</td>
-                <td style={{ padding: '16px' }}>
-                  <select 
-                    value={user.role} 
-                    onChange={(e) => handleRoleChange(user.uid, e.target.value)}
-                    style={{ background: 'var(--bg-body)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '6px', borderRadius: '4px' }}
-                  >
-                    <option value="member">Member (Query-Only)</option>
-                    <option value="admin">Admin (Full Access)</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   )
