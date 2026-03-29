@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { subscribeToAuth } from '../firebase/auth'
 import { getAgentDoc, subscribeToOrgInvites } from '../firebase/firestore'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { MOCK_USER, MOCK_AGENT } from '../data/mockData'
 import { USE_MOCK } from './AppConfig'
@@ -14,6 +14,18 @@ export function AuthProvider({ children }) {
   const [invites, setInvites] = useState([])
   const [loading, setLoading] = useState(!USE_MOCK)
   const [error,   setError]   = useState(null)
+  const [theme,   setTheme]   = useState(localStorage.getItem('theme') || 'light')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  useEffect(() => {
+    if (user?.theme && user.theme !== theme) {
+      setTheme(user.theme)
+    }
+  }, [user?.theme])
 
   useEffect(() => {
     if (USE_MOCK) return
@@ -73,8 +85,20 @@ export function AuthProvider({ children }) {
   const isAdmin = user?.role === 'admin'
   const isOrgAdmin = user?.orgRole === 'admin'
 
+  const toggleTheme = async () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light'
+    setTheme(newTheme)
+    if (user?.uid && !USE_MOCK) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { theme: newTheme })
+      } catch (err) {
+        console.error('[AuthContext] Failed to persist theme:', err)
+      }
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, agent, setAgent, loading, error, isAdmin, isOrgAdmin, invites, USE_MOCK }}>
+    <AuthContext.Provider value={{ user, agent, setAgent, loading, error, isAdmin, isOrgAdmin, invites, USE_MOCK, theme, toggleTheme }}>
       {children}
     </AuthContext.Provider>
   )

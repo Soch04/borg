@@ -59,7 +59,7 @@ export default function MessageBubble({ message, onHighlightDoc }) {
 
   if (type === 'bot-to-bot') {
     return (
-      <div className="msg-bot-to-bot animate-fade-in">
+      <div className="msg-bot-to-bot">
         <div className="msg-bot-to-bot-header">
           <RiArrowLeftRightLine className="msg-b2b-icon" />
           <span className="msg-b2b-route">
@@ -80,7 +80,7 @@ export default function MessageBubble({ message, onHighlightDoc }) {
   const isBot  = type === 'bot-response'
 
   return (
-    <div className={`msg-bubble-row ${isUser ? 'msg-row-user' : 'msg-row-bot'} animate-fade-in`}>
+    <div className={`msg-bubble-row ${isUser ? 'msg-row-user' : 'msg-row-bot'}`}>
       {/* Avatar */}
       {isBot && (
         <div className="msg-avatar msg-avatar-bot" aria-hidden="true">

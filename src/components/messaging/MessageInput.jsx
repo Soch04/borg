@@ -226,11 +226,11 @@ export default function MessageInput({ onSend, disabled }) {
         </div>
       </div>
 
-      <p className="msg-input-hint">
-        {mentions.length > 0
-          ? `Your agent will initiate Bot-to-Bot contact with ${mentions.map(m => m.displayName).join(', ')}.`
-          : 'Your agent will query the Org Knowledge Base and coordinate with relevant agents on your behalf.'}
-      </p>
+      {mentions.length > 0 && (
+        <p className="msg-input-hint">
+          {`Your agent will initiate Bot-to-Bot contact with ${mentions.map(m => m.displayName).join(', ')}.`}
+        </p>
+      )}
     </form>
   )
 }

@@ -23,10 +23,10 @@ export default function MessagingPage() {
     return () => unsub()
   }, [user?.orgId, USE_MOCK])
 
-  // Auto-scroll in personal chat
+  // Auto-scroll in personal chat (instantly snap to bottom)
   useEffect(() => {
     const el = feedRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
   }, [messages, isTyping])
 
   // ── Conditional returns AFTER all hooks ─────────────────────

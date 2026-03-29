@@ -5,7 +5,7 @@ import { HIDE_ORG_DATA_UI } from '../../context/AppConfig'
 import {
   RiMessage3Line, RiRobot2Line, RiUser3Line,
   RiBuildingLine, RiShieldLine, RiLogoutBoxRLine,
-  RiHexagonFill, RiDatabase2Line,
+  RiHexagonFill, RiDatabase2Line, RiSunLine, RiMoonLine
 } from 'react-icons/ri'
 import './Sidebar.css'
 
@@ -19,7 +19,7 @@ const baseNavItems = [
 const navItems = baseNavItems.filter(item => !item.hidden)
 
 export default function Sidebar() {
-  const { user, agent, isOrgAdmin } = useAuth()
+  const { user, agent, isOrgAdmin, theme, toggleTheme } = useAuth()
   const navigate = useNavigate()
 
   const handleSignOut = async () => {
@@ -111,6 +111,14 @@ export default function Sidebar() {
 
       {/* Bottom actions */}
       <div className="sidebar-footer">
+        <button
+          className="sidebar-nav-item theme-toggle-btn"
+          onClick={toggleTheme}
+          id="btn-theme-toggle"
+        >
+          {theme === 'light' ? <RiMoonLine className="nav-icon" /> : <RiSunLine className="nav-icon" />}
+          <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
+        </button>
         <button
           className="sidebar-nav-item sign-out-btn"
           onClick={handleSignOut}
