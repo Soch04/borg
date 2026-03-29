@@ -9,7 +9,7 @@ import './MessageBubble.css'
  * Renders a single message bubble.
  * type: 'user' | 'bot-response' | 'bot-to-bot'
  */
-export default function MessageBubble({ message, onHighlightDoc }) {
+export default function MessageBubble({ message }) {
   const { type, senderName, recipientName, content, timestamp, metadata, citations } = message
   const { user, agent } = useAuth()
   
@@ -152,33 +152,31 @@ export default function MessageBubble({ message, onHighlightDoc }) {
           </div>
         )}
         
-        {/* Citations / Sources */}
+        {/* Sources (Now static since sidebar is removed) */}
         {isBot && citations && citations.length > 0 && (
           <div className="msg-citations" style={{ marginTop: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
-            <div className="citations-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.375rem' }}>Sources:</div>
+            <div className="citations-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.375rem' }}>Grounding Sources:</div>
             <div className="citations-list" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
               {citations.map((cite, idx) => (
-                <button 
+                <span 
                   key={cite.id || idx} 
-                  className="citation-badge"
-                  onClick={() => onHighlightDoc?.(cite.id)}
+                  className="citation-badge-static"
                   style={{ 
                     fontSize: '0.75rem', 
                     padding: '0.25rem 0.5rem', 
                     borderRadius: '0.25rem',
                     background: 'var(--color-bg-elevated)',
                     border: '1px solid var(--border-color)',
-                    cursor: 'pointer',
-                    color: 'var(--color-accent)'
+                    color: 'var(--text-secondary)'
                   }}
-                  title={`View ${cite.title}`}
                 >
                   [{idx + 1}] {cite.title}
-                </button>
+                </span>
               ))}
             </div>
           </div>
         )}
+
       </div>
 
       {isUser && (

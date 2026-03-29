@@ -12,17 +12,8 @@ export default function MessagingPage() {
   const { user, agent, loading, USE_MOCK } = useAuth()
   const { messages, isTyping, isSending, sendMessage, clearChat } = useMessages()
   
-  const [orgDocs, setOrgDocs] = useState([])
-  const [highlightedDocId, setHighlightedDocId] = useState(null)
   const feedRef = useRef(null)
-
-  // ── All hooks must be before any conditional returns ────────
-  useEffect(() => {
-    if (USE_MOCK || !user?.orgId) return
-    const unsub = subscribeToOrgData(user.orgId, setOrgDocs)
-    return () => unsub()
-  }, [user?.orgId, USE_MOCK])
-
+  
   // Auto-scroll in personal chat (instantly snap to bottom)
   useEffect(() => {
     const el = feedRef.current
@@ -36,17 +27,6 @@ export default function MessagingPage() {
     </div>
   )
   if (!USE_MOCK && user && !agent) return <Navigate to="/bot-settings" replace />
-
-  const handleHighlightDoc = (docId) => {
-    setHighlightedDocId(docId)
-    // Scroll to the element
-    const el = document.getElementById(`doc-item-${docId}`)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-    // Remove highlight after a few seconds
-    setTimeout(() => setHighlightedDocId(null), 3000)
-  }
 
   return (
     <div className="msg-page rag-query-page">
@@ -74,9 +54,9 @@ export default function MessagingPage() {
       </div>
 
       <div className="rag-layout">
-        {/* LEFT: Query Chat */}
+        {/* Full-width Query Chat */}
         <div className="rag-chat-pane">
-          <div className="msg-feed-wrapper" style={{ height: '100%', borderRight: '1px solid var(--border-color)' }}>
+          <div className="msg-feed-wrapper" style={{ height: '100%' }}>
             <div className="msg-feed-header">
               <div className="feed-agent-info">
                 <div className="feed-agent-avatar">
@@ -107,7 +87,7 @@ export default function MessagingPage() {
                 </div>
               )}
               {messages.map((msg, i) => (
-                <MessageBubble key={msg.id ?? i} message={msg} onHighlightDoc={handleHighlightDoc} />
+                <MessageBubble key={msg.id ?? i} message={msg} />
               ))}
               {isTyping && (
                 <div className="typing-indicator">
@@ -128,53 +108,6 @@ export default function MessagingPage() {
 
             <MessageInput onSend={sendMessage} disabled={isTyping || isSending || !user?.orgId} />
           </div>
-        </div>
-
-        {/* RIGHT: Document Viewer */}
-        <div className="rag-docs-pane" style={{ padding: '1.5rem', overflowY: 'auto' }}>
-          <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <RiFileTextLine /> Organization Knowledge Base
-          </h3>
-          
-          {!user?.orgId ? (
-             <div className="empty-state">
-               <p>Create or join an Organization to view and add documents.</p>
-             </div>
-          ) : orgDocs.length === 0 ? (
-            <div className="empty-state" style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--border-color)', borderRadius: '1rem' }}>
-              <p>No documents found in your organization. Go to the Organization tab to upload policies and FAQs.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {orgDocs.map(doc => {
-                const isHighlighted = highlightedDocId === doc.id
-                return (
-                  <div 
-                    key={doc.id} 
-                    id={`doc-item-${doc.id}`}
-                    className={`card-hover ${isHighlighted ? 'doc-highlight-pulse' : ''}`} 
-                    style={{ 
-                      padding: '1rem', 
-                      background: 'var(--color-bg-elevated)', 
-                      borderRadius: '0.75rem', 
-                      border: isHighlighted ? '2px solid var(--color-accent)' : '1px solid var(--border-color)',
-                      transition: 'all 0.3s ease',
-                      boxShadow: isHighlighted ? '0 0 15px var(--color-accent-2)' : 'none'
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <RiFileTextLine style={{ color: 'var(--color-accent)' }} />
-                      {doc.title}
-                    </div>
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{doc.department}</span>
-                      <span>{doc.fileType}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
         </div>
       </div>
     </div>
