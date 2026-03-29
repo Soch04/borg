@@ -1,3 +1,33 @@
+/**
+ * @module rag
+ * @description Org-scoped Retrieval-Augmented Generation (RAG) pipeline.
+ *
+ * INGESTION FLOW (called from AdminDashboard on document approval):
+ *   ingestDocument(orgId, doc)
+ *     → chunkText(text, 1000, 200)      — recursive character splitting, 1000-token chunks, 200-token overlap
+ *     → generateEmbedding(chunk)         — Gemini text-embedding-004, 768-dimensional vectors
+ *     → upsertToPinecone(orgId, chunks)  — namespace-per-org isolation, mandatory is_approved:true metadata
+ *
+ * QUERY FLOW (called from useMessages.js on every user message):
+ *   queryKnowledgeBase(orgId, userMessage, { is_approved: true, department? })
+ *     → generateEmbedding(userMessage)   — embed the query with same model for cosine similarity
+ *     → Pinecone top-K=5 ANN search     — scoped to orgId namespace, filtered by metadata
+ *     → returns [{ text, title, docId, score }] — injected into Gemini system prompt as KNOWLEDGE BASE CONTEXT
+ *
+ * MULTI-TENANT ISOLATION:
+ *   Every org gets its own Pinecone namespace (`orgId`). Cross-org retrieval is structurally
+ *   impossible — the namespace is set at the client level before any query executes.
+ *
+ * PRIVACY GUARANTEE:
+ *   `is_approved: true` is enforced as a Pinecone server-side metadata filter on every query.
+ *   Unapproved documents are unretrievable even if the application layer is compromised.
+ *
+ * @exports generateEmbedding  - Embed a string via Gemini text-embedding-004 (768-dim)
+ * @exports upsertToPinecone   - Batch upsert embedded chunks to a Pinecone namespace
+ * @exports ingestDocument     - Full ingestion: text → chunks → embeddings → Pinecone
+ * @exports queryKnowledgeBase - Semantic search: question → embedding → Pinecone top-K
+ * @exports chunkText          - Recursive character split with configurable size and overlap
+ */
 import { Pinecone } from '@pinecone-database/pinecone';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
