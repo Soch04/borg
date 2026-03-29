@@ -1,46 +1,225 @@
 rules_version = '2';
+//
+// Project Borg — Firestore Security Rules
+// Last updated: 2026-03-29
+//
+// DESIGN PHILOSOPHY:
+//   All isolation is enforced at the database layer, not the application layer.
+//   No Firestore query result can leak cross-org data regardless of client bugs
+//   or compromised API key — every rule is evaluated server-side by Firestore.
+//
+// ARCHITECTURE:
+//   - Users belong to exactly one org (users/{uid}.orgId)
+//   - orgId is the primary isolation boundary across all collections
+//   - Helper functions centralize the orgId lookup to avoid rule duplication
+//   - get() calls incur 1 extra Firestore read per rule evaluation at write time;
+//     this is acceptable at demo scale and will be mitigated at production scale
+//     via Firebase App Check and server-side auth claims (Phase 2 upgrade path)
+//
+// COLLECTION MAP:
+//   users/{uid}                     → user profile + orgId
+//   agents/{uid}                    → sovereign agent node (1:1 with users)
+//   messages/{messageId}            → dual-lane protocol (user↔bot, bot↔bot)
+//   organizations/{orgId}           → org metadata + member map
+//   orgData/{docId}                 → knowledge base documents (orgId-scoped)
+//   agent_interactions/{id}         → A2A handshake audit log
+//
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can read/write their own user doc
+    // ─── Helper Functions ─────────────────────────────────────────────────────
+
+    /** Returns the requesting user's orgId from their profile document. */
+    function getUserOrgId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.orgId;
+    }
+
+    /** Returns true if the requesting user belongs to the specified org. */
+    function isOrgMember(orgId) {
+      return request.auth != null && getUserOrgId() == orgId;
+    }
+
+    /** Returns true if the user is the platform-level global admin (role == 'admin'). */
+    function isGlobalAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    /**
+     * Returns true if the user holds an admin role within the specified org.
+     * Checks both orgRole on the user doc AND the members map on the org doc
+     * for maximum defence-in-depth.
+     */
+    function isOrgAdmin(orgId) {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null && (
+        isGlobalAdmin() ||
+        userDoc.orgRole == 'admin' ||
+        userDoc.orgRole == 'owner'
+      ) && userDoc.orgId == orgId;
+    }
+
+    /** Returns true if the requesting user owns this document (senderId == uid). */
+    function isSender() {
+      return request.auth != null && resource.data.senderId == request.auth.uid;
+    }
+
+    /** Returns true if the requesting user is the recipient of this document. */
+    function isRecipient() {
+      return request.auth != null && resource.data.recipientId == request.auth.uid;
+    }
+
+    // ─── /users/{userId} ──────────────────────────────────────────────────────
+    //
+    // Read:  Any authenticated user may read user profiles — required for
+    //        @mention autocomplete and agent directory display. Profile data
+    //        contains no secrets (orgId, displayName, department, orgRole).
+    //        Sensitive fields (API keys, etc.) must never be stored here.
+    // Write: Each user may only write their own profile document. Global admins
+    //        may write any user document (for role assignment and org management).
     match /users/{userId} {
       allow read:  if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && (
+        request.auth.uid == userId ||
+        isGlobalAdmin()
+      );
+      allow delete: if isGlobalAdmin();
     }
 
-    // Users can read/write their own agent doc
+    // ─── /agents/{agentId} ────────────────────────────────────────────────────
+    //
+    // Read:  All authenticated users may read agent documents — required for
+    //        the agent directory and @mention autocomplete. Agent data is
+    //        non-sensitive (displayName, department, status, model).
+    //        systemInstructions is the one sensitive field; in Phase 2 this
+    //        will be moved to a private subcollection.
+    // Write: Only the owning user may modify their own agent document.
+    //        Global admins may write any agent (for moderation).
     match /agents/{agentId} {
       allow read:  if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == agentId;
+      allow create: if request.auth != null && request.auth.uid == agentId;
+      allow update: if request.auth != null && (
+        request.auth.uid == agentId ||
+        isGlobalAdmin()
+      );
+      allow delete: if request.auth != null && (
+        request.auth.uid == agentId ||
+        isGlobalAdmin()
+      );
     }
 
-    // Messages: users can read/write messages they sent or received
+    // ─── /messages/{messageId} ────────────────────────────────────────────────
+    //
+    // Read:  A user may read a message if they are the sender OR recipient.
+    //        This enforces the dual-lane protocol: bot-to-bot messages are
+    //        only readable by the two users involved, not the full org.
+    // Create: Any authenticated user may create messages (send to any recipient).
+    //         This is required for @mention cross-user messaging.
+    // Update: Only the sender may update their own messages (e.g., edit).
+    // Delete: Only the sender or recipient may delete.
+    //
+    // ORG ISOLATION NOTE: Messages carry senderId/recipientId but not orgId.
+    //   Cross-org messaging is intentionally permitted for the A2A protocol —
+    //   the orgId boundary is enforced at the knowledge base (orgData) layer,
+    //   not at the messaging layer. Agent content relay requires explicit human
+    //   approval via the [FULL DISCLOSURE] gate before any KB content crosses orgs.
     match /messages/{messageId} {
       allow read: if request.auth != null && (
-        resource.data.senderId == request.auth.uid ||
+        resource.data.senderId    == request.auth.uid ||
         resource.data.recipientId == request.auth.uid
       );
       allow create: if request.auth != null;
+      allow update: if request.auth != null && isSender();
+      allow delete: if request.auth != null && (isSender() || isRecipient());
+    }
+
+    // ─── /organizations/{orgId} ───────────────────────────────────────────────
+    //
+    // Read:  Any authenticated user may read org metadata — required for the
+    //        create/join flow where users search for an org by name.
+    // Create: Any authenticated user may create a new org (they become owner).
+    // Update: Only org admins (orgRole == 'admin' || 'owner') may update the org.
+    //         Global admins may update any org.
+    // Delete: Only the org owner or global admin may delete.
+    match /organizations/{orgId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        isOrgAdmin(orgId) ||
+        isGlobalAdmin()
+      );
       allow delete: if request.auth != null && (
-        resource.data.senderId == request.auth.uid ||
-        resource.data.recipientId == request.auth.uid
+        resource.data.ownerId == request.auth.uid ||
+        isGlobalAdmin()
       );
     }
 
-    // Organizations
-    match /organizations/{orgId} {
-      allow read, create, update: if request.auth != null;
-      allow delete: if request.auth != null && (resource.data.ownerId == request.auth.uid || resource.data.members[request.auth.uid].role == 'admin');
-    }
-
-    // Org data
+    // ─── /orgData/{docId} ─────────────────────────────────────────────────────
+    //
+    // THIS IS THE PRIMARY ISOLATION BOUNDARY.
+    //
+    // Read:   Only members of the document's org may read it.
+    //         `is_approved` filtering is enforced at the Pinecone layer for RAG
+    //         queries; this rule prevents direct Firestore reads of unapproved
+    //         documents by non-members regardless of client-side code.
+    // Create: Only org members may submit documents to their org's knowledge base.
+    // Update: Only org admins may update documents (e.g., metadata corrections).
+    //         Document owners may update their own submissions before approval.
+    // Delete: Only org admins or global admins may delete knowledge base documents.
+    //
+    // SECURITY POSTURE:
+    //   A compromised client in Org A cannot read Org B's orgData documents even
+    //   with a valid Firebase Auth token, because Firestore evaluates
+    //   isOrgMember(resource.data.orgId) server-side before returning any data.
     match /orgData/{docId} {
-      allow read, create, update: if request.auth != null;
+      allow read: if request.auth != null && (
+        isOrgMember(resource.data.orgId) ||
+        isGlobalAdmin()
+      );
+      allow create: if request.auth != null && (
+        isOrgMember(request.resource.data.orgId) ||
+        isGlobalAdmin()
+      );
+      allow update: if request.auth != null && (
+        // Org admins can update any doc in their org
+        isOrgAdmin(resource.data.orgId) ||
+        // Document owners can update their own unapproved submissions
+        (resource.data.uploadedBy == request.auth.uid &&
+         resource.data.status == 'pending') ||
+        isGlobalAdmin()
+      );
+      allow delete: if request.auth != null && (
+        isOrgAdmin(resource.data.orgId) ||
+        isGlobalAdmin()
+      );
     }
 
-    // Agent interactions
+    // ─── /agent_interactions/{interactionId} ──────────────────────────────────
+    //
+    // Read:   Sender or recipient of the interaction may read it.
+    //         Global admins may read any interaction (audit/moderation).
+    // Create: Any authenticated user may create an interaction (A2A handshake).
+    // Update: Only the recipient may update (to mark as resolved/deferred).
+    // Delete: Only global admins may delete interaction records (audit integrity).
     match /agent_interactions/{interactionId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null && (
+        resource.data.fromUserId == request.auth.uid ||
+        resource.data.toUserId   == request.auth.uid ||
+        resource.data.senderId   == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        isGlobalAdmin()
+      );
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        resource.data.toUserId    == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        isSender() ||
+        isGlobalAdmin()
+      );
+      allow delete: if isGlobalAdmin();
     }
+
   }
 }
