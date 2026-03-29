@@ -168,24 +168,22 @@ Each organization owns an isolated Pinecone namespace partitioned by `orgId`. Th
 
 ---
 
-## Running the Ingestion Server
+## Document Ingestion
 
-The Python FastAPI ingestion backend must be running for document uploads to work.
+Document ingestion runs **entirely in the browser** — no Python server required.
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+`DataUploader.jsx` extracts text client-side and calls `ingestDocument()` from `lib/rag.js` directly:
 
-# Start the ingestion server (defaults to localhost:8000)
-uvicorn user_input:app --reload --port 8000
-```
+| Format | Extraction | Embedding | Storage |
+|---|---|---|---|
+| `.pdf` | `pdfParser.js` (pdfjs-dist) | Gemini `text-embedding-004` | Pinecone namespace `{orgId}` |
+| `.docx` | `docxParser.js` (mammoth) | Gemini `text-embedding-004` | Pinecone namespace `{orgId}` |
+| `.txt` / text | `File.text()` | Gemini `text-embedding-004` | Pinecone namespace `{orgId}` |
 
-Endpoints:
-- `POST /api/upload` — upload PDF, DOCX, or TXT files (multipart/form-data)
-- `POST /api/text`   — submit raw text for ingestion
-- `DELETE /api/delete` — remove a document from Pinecone by source path
+All chunks are upserted with `{ is_approved: true, orgId, uploadedBy }` metadata — immediately queryable by any agent in the organization.
 
-The React frontend (`DataUploader.jsx`) POST to these endpoints automatically. The Pinecone query path (all 5 RAG stages) runs entirely in the browser and does not require the Python server.
+> **Optional advanced path:** A Python FastAPI server (`user_input.py`) exists for server-side ingestion with LangChain `SemanticChunker` and HuggingFace `all-mpnet-base-v2` embeddings. Run with `uvicorn user_input:app --reload` if preferred. The browser path is the production default.
+
 
 ## Application Pages
 

@@ -10,6 +10,9 @@
  *  - streamGemini()     — Server-Sent Events streaming (used by interactive chat)
  *
  * Both share the same request body builder and exponential backoff logic.
+ * An apiHelpers.geminiCircuit (CLOSED/OPEN/HALF_OPEN) wraps all fetch calls:
+ * after 3 consecutive failures the circuit trips OPEN, causing fast-fail for
+ * 30s before a probe is allowed through — preventing quota cascade under degradation.
  *
  * STREAMING IMPLEMENTATION:
  * Gemini's streamGenerateContent endpoint returns an SSE stream where each event
@@ -28,7 +31,7 @@
  */
 
 import { GEMINI_API_KEY, GEMINI_MODEL } from '../context/AppConfig'
-import { isRetryableStatus } from '../utils/apiHelpers'
+import { isRetryableStatus, geminiCircuit } from '../utils/apiHelpers'
 
 const GEMINI_ENDPOINT        = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 const GEMINI_STREAM_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent`
@@ -102,6 +105,14 @@ export async function callGemini({
 }) {
   if (!GEMINI_API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in .env')
 
+  // Fast-fail immediately if the circuit is OPEN — avoids piling up requests
+  // during a Gemini degradation event and exhausting quota on doomed retries.
+  if (geminiCircuit.isOpen()) {
+    const { failures, lastFailureTime } = geminiCircuit.getStatus()
+    const waitSec = Math.ceil((30_000 - (Date.now() - lastFailureTime)) / 1000)
+    throw new Error(`[Borg] Gemini circuit OPEN (${failures} failures). Auto-retry in ~${Math.max(0, waitSec)}s`)
+  }
+
   const body        = buildRequestBody(systemPrompt, userMessage, history, temperature, maxTokens)
   const MAX_ATTEMPTS = 3
   let lastError
@@ -109,32 +120,41 @@ export async function callGemini({
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) await backoffDelay(attempt - 1)
 
-    const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
-    })
+    try {
+      const res = await geminiCircuit.call(() =>
+        fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        })
+      )
 
-    if (res.ok) {
-      const data = await res.json()
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+      if (res.ok) {
+        const data = await res.json()
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
 
-      if (!text) {
-        const finishReason = data?.candidates?.[0]?.finishReason
-        if (finishReason === 'SAFETY') throw new Error('Gemini blocked the response due to safety filters.')
-        throw new Error('Gemini returned an empty response — no text candidate produced.')
+        if (!text) {
+          const finishReason = data?.candidates?.[0]?.finishReason
+          if (finishReason === 'SAFETY') throw new Error('Gemini blocked the response due to safety filters.')
+          throw new Error('Gemini returned an empty response — no text candidate produced.')
+        }
+
+        return text
       }
 
-      return text
+      const errBody = await res.json().catch(() => ({}))
+      const errMsg  = errBody?.error?.message ?? res.statusText
+      lastError = new Error(`Gemini API error ${res.status}: ${errMsg}`)
+
+      if (!isRetryableStatus(res.status)) throw lastError
+
+      console.warn(`[Borg] Gemini ${res.status} on attempt ${attempt + 1}/${MAX_ATTEMPTS} — retrying...`)
+    } catch (err) {
+      // If the circuit just tripped OPEN (fast-fail error), re-throw immediately
+      if (err.message?.includes('OPEN')) throw err
+      lastError = err
+      if (attempt + 1 >= MAX_ATTEMPTS) throw lastError
     }
-
-    const errBody = await res.json().catch(() => ({}))
-    const errMsg  = errBody?.error?.message ?? res.statusText
-    lastError = new Error(`Gemini API error ${res.status}: ${errMsg}`)
-
-    if (!isRetryableStatus(res.status)) throw lastError
-
-    console.warn(`[Borg] Gemini ${res.status} on attempt ${attempt + 1}/${MAX_ATTEMPTS} — retrying...`)
   }
 
   throw lastError
