@@ -157,11 +157,26 @@ function ActiveOrgDashboard() {
     if (!form.title.trim() || !form.content.trim()) return
     setSubmitting(true)
     try {
-      await submitOrgData(user.uid, user.displayName, user.orgId, form)
-      addToast('Organizational data uploaded for RAG', 'success')
+      // 1. Submit structured metadata to Firestore
+      const docRef = await submitOrgData(user.uid, user.displayName, user.orgId, form)
+      
+      // 2. Project Zero-G: Real-Time RAG Vectorization (Neural Uplift)
+      const { ingestDocument } = await import('../lib/rag.js')
+      const docId = docRef?.id || `doc-${Date.now()}`
+      
+      await ingestDocument(user.orgId, {
+        id: docId,
+        title: form.title,
+        text: form.content,
+        department: form.department,
+        adminId: user.uid
+      })
+
+      addToast('Organizational data uploaded and intelligently vectorized for RAG!', 'success')
       setForm({ title: '', content: '', department: user?.department ?? '', fileType: 'text' })
     } catch (err) {
-      addToast('Failed to submit data', 'error')
+      console.error('[Zero-G] Failed to submit dynamic vector payload:', err)
+      addToast('Failed to parse and vectorize data', 'error')
     } finally {
       setSubmitting(false)
     }

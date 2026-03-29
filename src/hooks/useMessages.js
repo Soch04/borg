@@ -31,30 +31,65 @@ export function useMessages() {
   // historyRef stores recent turns for conversation context (not persisted to Firestore)
   const historyRef = useRef([])
 
-  // ── Load messages ──────────────────────────────────────────
+  const wsRef = useRef(null)
+
+  // ── Load messages & Connect Python WebSocket ────────────────
   useEffect(() => {
-    if (USE_MOCK) {
-      setMessages(MOCK_MESSAGES.filter(m => m.type !== 'bot-to-bot'))
-      return
-    }
-    if (!user?.uid) return
+    if (!user?.uid || !user?.email) return
+
+    // 1. Load historical messages (Firestore)
     const unsub = subscribeToUserMessages(user.uid, (msgs) => {
       const personal = msgs.filter(m => m.type !== 'bot-to-bot')
       setMessages(personal)
-      // Re-hydrate historyRef from loaded messages (last 10 turns max)
-      historyRef.current = personal.slice(-10).map(m => ({
-        role:    m.senderType === 'human' ? 'user' : 'assistant',
-        content: m.content,
-      }))
     })
-    return unsub
-  }, [user?.uid])
 
-  // ── Send a message & get agent response ────────────────────
+    // 2. Establish Python Engine WebSocket connection
+    const wsUrl = `ws://localhost:8000/ws/chat/${user.email}?org_id=${user.department ?? 'global'}&is_admin=${user.orgRole === 'admin'}`
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'bot_broadcast') {
+          const botMsg = {
+            id:         `bot-ws-${Date.now()}`,
+            type:       'bot-response',
+            senderName:  'Pinecone Vector Engine',
+            senderType: 'agent',
+            content:    data.text,
+            timestamp:  new Date(),
+          }
+          setMessages(prev => [...prev, botMsg])
+          setIsTyping(false)
+        } 
+        else if (data.type === 'cross_org_request') {
+          const hitlMsg = {
+            id:         `hitl-${data.req_id}`,
+            type:       'bot-response',
+            senderName:  'System Security (HITL)',
+            senderType: 'system',
+            content:    `🚨 Cross-Org Request from ${data.from_email}:\n> "${data.query}"\n\nTo approve this release, type exactly:\n/approve ${data.req_id}`,
+            timestamp:  new Date(),
+          }
+          setMessages(prev => [...prev, hitlMsg])
+        }
+      } catch (e) {
+        console.error('WS Parse Error:', e)
+      }
+    }
+
+    return () => {
+      unsub()
+      ws.close()
+    }
+  }, [user?.uid, user?.email, user?.department, user?.orgRole])
+
+  // ── Send a message to Python DB Vector Engine ────────────────
   const sendMessage = async (content, mentions = []) => {
     if (!content.trim() || isSending) return
     setIsSending(true)
-    let messageCitations = []
 
     const userMsg = {
       id:         `tmp-${Date.now()}`,
@@ -69,209 +104,24 @@ export function useMessages() {
     setIsTyping(true)
     setIsSending(false)
 
-    // Persist user message to Firestore (if not mock)
-    if (!USE_MOCK) {
-      await sendUserMessage(user.uid, content, user.displayName).catch(console.error)
+    // Capture HITL Approvals manually
+    if (content.startsWith('/approve ')) {
+      const req_id = content.split(' ')[1]
+      wsRef.current?.send(JSON.stringify({ type: 'cross_org_approve', req_id }))
+      setIsTyping(false)
+      addToast('HITL Approval Sent to Python Engine', 'success')
+      return;
     }
 
-    // Fetch directory for prompt injection and email resolution
-    let directory = []
-    // Fetch approved org knowledge base docs for RAG context
-    let kbContext = ''
-    if (!USE_MOCK) {
-      directory = await getOrgDirectory(user?.orgId)
-
-      // Build RAG context from Pinecone (Only approved docs for this org/department)
-      if (user?.orgId) {
-        try {
-          const filters = { is_approved: true }
-          if (user.department && user.department !== 'Unassigned') {
-             filters.department = user.department
-          }
-
-          const results = await queryKnowledgeBase(user.orgId, content, filters)
-          
-          if (results.length > 0) {
-            kbContext = results
-              .map(r => `### DOCUMENT: ${r.title} (ID: ${r.docId})\n${r.text}`)
-              .join('\n\n')
-            
-            // Store results in a temp variable to attach as metadata to the bot message later
-            messageCitations = results.map(r => ({ id: r.docId, title: r.title }))
-          }
-        } catch (kbErr) {
-          console.warn('[Borg] Failed to query vector knowledge base:', kbErr)
-        }
-      }
-    }
-
+    // Pass direct query to python
     try {
-      // ── Build prompt ──────────────────────────────────────
-      const systemPrompt = buildSystemPrompt(user, agent, kbContext, directory)
-      const complex      = isComplexRequest(content)
-      const fullPrompt   = (complex && ENABLE_INTERNAL_MONOLOGUE)
-        ? systemPrompt + '\n\n' + buildMonologuePrompt()
-        : systemPrompt
-
-      let responseText
-
-      if (USE_MOCK) {
-        // Still use mock in mock mode
-        responseText = generateMockResponse(content)
-      } else {
-        responseText = await callGemini({
-          systemPrompt: fullPrompt,
-          userMessage:  content,
-          history:      historyRef.current,
-        })
-      }
-
-      // ── Post-process LLM Output for Direct Messaging ──────
-      const { isMessageRequest, targetEmail, messageBody } = parseMessageAgentCommand(responseText)
-
-      if (isMessageRequest && !USE_MOCK) {
-        // Find target user to get their proper name if possible
-        const targetUser = directory.find(u => u.email.toLowerCase() === targetEmail.toLowerCase())
-        const targetName = targetUser?.displayName ?? targetEmail
-
-        await sendMention({
-          sender_uid:      user.uid,
-          sender_name:     user.displayName,
-          sender_email:    user.email,
-          recipient_email: targetEmail,
-          content:         messageBody,
-          body:            messageBody,
-        }).catch(console.error)
-
-        const textOutput = `📤 I've sent a direct request to ${targetName}'s agent:\n> "${messageBody}"\n\nYou'll see their reply here when it comes in.`
-
-        const confirmMsg = {
-          id:         `b2b-${Date.now()}`,
-          type:       'bot-response',
-          senderName:  agent?.displayName ?? 'Your Agent',
-          senderType: 'agent',
-          content:    textOutput,
-          timestamp:  new Date(),
-        }
-        setMessages(prev => [...prev, confirmMsg])
-        
-        // Update history with what the agent actually did
-        historyRef.current = [
-          ...historyRef.current,
-          { role: 'user',      content },
-          { role: 'assistant', content: textOutput },
-        ].slice(-20)
-
-        // Persist to feed
-        await sendBotMessage(user.uid, textOutput, agent?.displayName).catch(console.error)
-        setIsTyping(false)
-        return
-      }
-
-      // ── Parse escalation guard ────────────────────────────
-      const { isEscalation, topic } = parseEscalation(responseText)
-      if (isEscalation) {
-        const escalationMsg = {
-          id:         `esc-${Date.now()}`,
-          type:       'escalation',
-          senderName:  agent?.displayName ?? 'Your Agent',
-          senderType: 'agent',
-          content:    `I don't have enough information to answer confidently about: **${topic}**.\n\nCould you provide more context, or should I reach out to the relevant team's agent?`,
-          topic,
-          timestamp:  new Date(),
-        }
-        setMessages(prev => [...prev, escalationMsg])
-        setIsTyping(false)
-        return
-      }
-
-      // ── Parse monologue sections (if active) ──────────────
-      const parsed = (complex && ENABLE_INTERNAL_MONOLOGUE)
-        ? parseMonologue(responseText)
-        : { finalAnswer: responseText, strategic: null, execution: null }
-
-      const botMsg = {
-        id:          `bot-${Date.now()}`,
-        type:        'bot-response',
-        senderName:   agent?.displayName ?? 'Your Agent',
-        senderType:  'agent',
-        content:      parsed.finalAnswer,
-        monologue:    (parsed.strategic || parsed.execution) ? {
-          strategic: parsed.strategic,
-          execution: parsed.execution,
-        } : null,
-        timestamp:   new Date(),
-        citations:   messageCitations,
-      }
-
-      setMessages(prev => [...prev, botMsg])
-
-      // Update in-memory history for next turn
-      historyRef.current = [
-        ...historyRef.current,
-        { role: 'user',      content },
-        { role: 'assistant', content: parsed.finalAnswer },
-      ].slice(-20) // keep last 20 turns
-
-      // Persist bot response to Firestore (if not mock)
-      if (!USE_MOCK) {
-        await sendBotMessage(user.uid, parsed.finalAnswer, agent?.displayName).catch(console.error)
-      }
-
+      wsRef.current?.send(JSON.stringify({ type: 'query', text: content }))
     } catch (err) {
-      console.error('[Borg Agent] Gemini call failed:', err)
-      
-      // Fallback: If there was an error but the user pinged someone, send 'recieved' to the target
-      let fallbackTargets = [...mentions]
-
-      if (!USE_MOCK && content.includes('@')) {
-        const emailMatches = extractMentionedEmails(content)
-        for (const email of emailMatches) {
-          if (!fallbackTargets.some(m => (m.email || '').toLowerCase() === email)) {
-            fallbackTargets.push({ email, displayName: email })
-          }
-        }
-        
-        for (const userDoc of directory) {
-          if (!userDoc.email) continue
-          if (fallbackTargets.some(m => m.email === userDoc.email)) continue
-          
-          const escName = userDoc.displayName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')
-          const escFirst = userDoc.displayName.split(' ')[0].replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')
-          
-          if (new RegExp(`@${escName}\\\\b`, 'i').test(content) || new RegExp(`@${escFirst}\\\\b`, 'i').test(content)) {
-            fallbackTargets.push(userDoc)
-          }
-        }
-      }
-
-      if (fallbackTargets.length > 0 && !USE_MOCK) {
-        await Promise.all(
-          fallbackTargets.map(m =>
-            sendMention({
-              sender_uid:      user.uid,
-              sender_name:     user.displayName,
-              sender_email:    user.email,
-              recipient_email: m.email,
-              content:         'recieved',
-              body:            'recieved',
-            }).catch(() => {})
-          )
-        )
-      }
-
-      const errorMsg = {
-        id:         `err-${Date.now()}`,
-        type:       'bot-response',
-        senderName:  agent?.displayName ?? 'Your Agent',
-        senderType: 'agent',
-        content:    `recieved`,
-        timestamp:  new Date(),
-      }
-      setMessages(prev => [...prev, errorMsg])
-    } finally {
+      console.error('Python WS execution failed:', err)
       setIsTyping(false)
     }
+
+
   }
 
   const handleClearChat = async () => {
