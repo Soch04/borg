@@ -5,7 +5,7 @@ import { Navigate } from 'react-router-dom'
 import { subscribeToOrgData } from '../firebase/firestore'
 import MessageBubble from '../components/messaging/MessageBubble'
 import MessageInput from '../components/messaging/MessageInput'
-import { RiRobot2Line, RiMessage3Line, RiFileTextLine, RiSearchEyeLine } from 'react-icons/ri'
+import { RiRobot2Line, RiFileTextLine, RiSearchEyeLine, RiDeleteBinLine } from 'react-icons/ri'
 import './MessagingPage.css'
 
 export default function MessagingPage() {
@@ -52,23 +52,11 @@ export default function MessagingPage() {
     <div className="msg-page rag-query-page">
       {/* ── Page header ─────────────────────────────────────── */}
       <div className="msg-page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <div>
-            <h1>
-              <RiSearchEyeLine style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
-              Query
-            </h1>
-            <p>Ask your agent questions about your Organization's Knowledge Base</p>
-          </div>
-          <button 
-            className="btn btn-sm btn-danger" 
-            onClick={clearChat}
-            disabled={messages.length === 0}
-            title="Clear current chat history"
-          >
-            Clear Chat
-          </button>
-        </div>
+        <h1>
+          <RiSearchEyeLine style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
+          Query
+        </h1>
+        <p>Ask your agent questions about your Organization's Knowledge Base</p>
       </div>
 
       <div className="rag-layout">
@@ -85,10 +73,22 @@ export default function MessagingPage() {
                   <div className="feed-agent-model">{agent?.model ?? 'gemini-2.0-flash'} · RAG enabled</div>
                 </div>
               </div>
-              <span className={`badge badge-${agent?.status ?? 'offline'}`}>
-                <span className="badge-dot" />
-                {agent?.status ?? 'offline'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className={`badge badge-${agent?.status ?? 'offline'}`}>
+                  <span className="badge-dot" />
+                  {agent?.status ?? 'offline'}
+                </span>
+                <button
+                  className="clear-chat-btn"
+                  onClick={clearChat}
+                  disabled={messages.length === 0}
+                  title="Clear chat"
+                  aria-label="Clear chat history"
+                  id="btn-clear-chat"
+                >
+                  <RiDeleteBinLine />
+                </button>
+              </div>
             </div>
 
             <div className="msg-feed" ref={feedRef} role="log" aria-live="polite">
