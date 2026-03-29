@@ -46,6 +46,8 @@ export default function DataUploader({ title, description, orgId, ownerEmail, on
             text = await file.text();
           }
 
+          console.log(`[DataUploader] Extracted ${text?.length || 0} characters from ${file?.name}`);
+
           await ingestDocument(orgId, {
             id: `file_${uuidv4().slice(0, 8)}`,
             title: file.name,

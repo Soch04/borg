@@ -70,7 +70,7 @@ export async function getCachedEmbedding(text) {
  * Evicts the least recently used entry if the cache is at capacity.
  *
  * @param {string}   text      - The input text that was embedded
- * @param {number[]} embedding - The 768-dim vector returned by Gemini text-embedding-004
+ * @param {number[]} embedding - The 768-dim vector returned by Gemini gemini-embedding-001
  */
 export async function setCachedEmbedding(text, embedding) {
   const key = await hashText(text)

@@ -14,9 +14,9 @@
 
 import * as pdfjsLib from 'pdfjs-dist'
 
-// Point the PDF.js worker at the CDN bundle — avoids bundling the 1.5MB worker into Vite
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+// Point the PDF.js worker at the locally hosted bundle in /public
+// This avoids dynamic import failures from CDNs in Vite environments.
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
 /**
  * Extract all text from a PDF File object.

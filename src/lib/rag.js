@@ -5,7 +5,7 @@
  * INGESTION FLOW (called from AdminDashboard on document approval):
  *   ingestDocument(orgId, doc)
  *     → chunkText(text, 1000, 200)      — recursive character splitting, 1000-token chunks, 200-token overlap
- *     → generateEmbedding(chunk)         — Gemini text-embedding-004, 768-dimensional vectors
+ *     → generateEmbedding(chunk)         — Gemini gemini-embedding-001, 768-dimensional vectors
  *     → upsertToPinecone(orgId, chunks)  — namespace-per-org isolation, mandatory is_approved:true metadata
  *
  * QUERY FLOW (called from useMessages.js on every user message):
@@ -22,7 +22,7 @@
  *   `is_approved: true` is enforced as a Pinecone server-side metadata filter on every query.
  *   Unapproved documents are unretrievable even if the application layer is compromised.
  *
- * @exports generateEmbedding  - Embed a string via Gemini text-embedding-004 (768-dim)
+ * @exports generateEmbedding  - Embed a string via Gemini gemini-embedding-001 (768-dim)
  * @exports upsertToPinecone   - Batch upsert embedded chunks to a Pinecone namespace
  * @exports ingestDocument     - Full ingestion: text → chunks → embeddings → Pinecone
  * @exports queryKnowledgeBase - Semantic search: question → embedding → Pinecone top-K
@@ -30,6 +30,8 @@
  */
 import { Pinecone } from '@pinecone-database/pinecone';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { db } from '../firebase/config';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { getCachedEmbedding, setCachedEmbedding } from './embeddingCache';
 
 // ─── API Key Strategy ─────────────────────────────────────────────────────────
@@ -60,7 +62,7 @@ function getPinecone() {
 function getEmbeddingModel() {
   if (!_embeddingModel) {
     const genAI = new GoogleGenerativeAI(getGeminiKey());
-    _embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    _embeddingModel = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
   }
   return _embeddingModel;
 }
@@ -78,8 +80,13 @@ export async function generateEmbedding(text) {
   const cached = await getCachedEmbedding(text)
   if (cached) return cached
 
-  // Cache miss — call Gemini text-embedding-004
-  const result = await getEmbeddingModel().embedContent(text);
+  // Cache miss — call Gemini embedding model
+  // Note: Force 768 dimensions to match Pinecone index configuration
+  const result = await getEmbeddingModel().embedContent({
+    content: { parts: [{ text }] },
+    taskType: "RETRIEVAL_DOCUMENT",
+    outputDimensionality: 768
+  });
   const vector = result.embedding.values
 
   // Store in cache for future hits
@@ -94,6 +101,12 @@ export async function generateEmbedding(text) {
  * @param {Object} chunk - { id, text, metadata }
  */
 export async function upsertToPinecone(orgId, chunks) {
+  // Fix: Resolve 'Must pass in at least 1 record to upsert' error by skipping empty lists
+  if (!chunks || chunks.length === 0) {
+    console.warn(`[rag] upsertToPinecone: No chunks provided for org ${orgId}. Skipping.`);
+    return;
+  }
+
   const index = getPinecone().index(getPineconeIndex()).namespace(orgId);
   
   const vectors = await Promise.all(chunks.map(async (c) => {
@@ -119,13 +132,28 @@ export async function upsertToPinecone(orgId, chunks) {
  * @param {string} orgId - Namespace
  * @param {Object} doc - { id, title, text, department, adminId }
  */
-export async function ingestDocument(orgId, doc) {
-  const { id: docId, title, text, department, adminId } = doc;
+export async function ingestDocument(orgId, docData) {
+  const { id: docId, title, text, department, adminId } = docData;
   
-  // 1. Chunk text (Recursive character splitting)
+  console.log(`[rag] Ingesting document: ${title} (${text?.length || 0} chars)`);
+
+  // 1. Persist to Firestore Mirror (Durable record of extracted text)
+  // This satisfies the "is the processing saving the data" requirement
+  await setDoc(doc(db, 'orgData', docId), {
+    orgId,
+    title,
+    text,
+    department,
+    adminId,
+    status: 'approved',
+    ingestedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+
+  // 2. Chunk text (Recursive character splitting)
   const textChunks = chunkText(text, 1000, 200);
   
-  // 2. Map into Pinecone Vector Chunks
+  // 3. Map into Pinecone Vector Chunks
   const chunks = textChunks.map((t, i) => ({
     id: `${docId}_chunk_${i}`,
     text: t,
@@ -139,7 +167,7 @@ export async function ingestDocument(orgId, doc) {
     }
   }));
 
-  // 3. Batched Upsert
+  // 4. Batched Upsert to Pinecone
   await upsertToPinecone(orgId, chunks);
 }
 
