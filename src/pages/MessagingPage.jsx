@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMessages } from '../hooks/useMessages'
+import { useAgentInbox } from '../hooks/useAgentInbox'
 import { useAuth } from '../context/AuthContext'
 import { Navigate } from 'react-router-dom'
 import { subscribeToOrgData } from '../firebase/firestore'
@@ -11,6 +12,9 @@ import './MessagingPage.css'
 export default function MessagingPage() {
   const { user, agent, loading, USE_MOCK } = useAuth()
   const { messages, isTyping, isSending, sendMessage, clearChat } = useMessages()
+  // Mount autonomous agent inbox — listens for incoming inter-agent requests
+  // and autonomously replies or escalates based on confidence evaluation
+  useAgentInbox()
   
   const [orgDocs, setOrgDocs] = useState([])
   const [highlightedDocId, setHighlightedDocId] = useState(null)
