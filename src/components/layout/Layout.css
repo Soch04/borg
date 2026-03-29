@@ -1,5 +1,8 @@
 /* ══════════════════════════════════════════════════════
-   ROOT LAYOUT — Header + Dock + Main
+   ROOT LAYOUT — Push Layout (IDE-style)
+   Header: fixed top bar
+   Dock: flex child — pushes main content on expand
+   Main: fills remaining width, no overlap ever
    ══════════════════════════════════════════════════════ */
 
 .layout {
@@ -7,29 +10,36 @@
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  padding-top: var(--header-height); /* reserve space for fixed header */
 }
 
-/* Offset main content below the fixed header and to the right of the collapsed dock */
+/* ── Push container: Dock + Main sit side by side ── */
+.layout-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Main content fills whatever width remains after the dock */
 .layout-main {
-  position: fixed;
-  top: var(--header-height);
-  left: var(--dock-width-collapsed);
-  right: 0;
-  bottom: 0;
+  flex: 1;
+  min-width: 0;
   overflow-y: auto;
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
-  /* Smooth nudge if dock ever changes width — matches dock transition */
-  transition: left 180ms linear;
 }
 
-/* Pages that need padding use .page-content wrapper */
+/* ── Workspace with symmetrical gutters ── */
+/* The gutter equals the DIFFERENCE between expanded and collapsed dock
+   so content stays centered in the visible space at all states.        */
 .page-content {
   flex: 1;
   overflow-y: auto;
-  padding: 2rem 2.5rem;
-  max-width: 1200px;
+  /* Symmetrical horizontal gutters — matches dock expanded delta */
+  padding: 2rem calc((var(--dock-width-expanded) - var(--dock-width-collapsed)) / 2);
+  max-width: 1440px;
   width: 100%;
   margin: 0 auto;
 }

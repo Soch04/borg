@@ -1,23 +1,26 @@
 /* ══════════════════════════════════════════════════════
-   ICON DOCK — Microsoft Fluent Industrial Design
+   ICON DOCK — Push Layout (IDE / Azure Portal feel)
    Collapsed: 52px icon-only strip
    Hover:     Expands to 220px — linear, non-elastic
+   Behavior:  Flex child — PUSHES main content, no overlay
    ══════════════════════════════════════════════════════ */
 
 .dock {
-  position: fixed;
-  top: var(--header-height);
-  left: 0;
-  bottom: 0;
+  /* Flex child — sits beside layout-main, not over it */
+  flex-shrink: 0;
   width: var(--dock-width-collapsed);
+  /* Stick to the viewport as user scrolls */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: calc(100vh - var(--header-height));
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  z-index: 150;
   overflow: hidden;
 
-  /* Linear, non-elastic transition — per spec */
+  /* Linear, non-elastic expansion — per spec */
   transition: width 180ms linear;
 }
 
@@ -55,8 +58,6 @@
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
-
-  /* Snap transitions for bg/color */
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
@@ -72,11 +73,10 @@
   border-left-color: var(--color-accent);
 }
 
-/* ── Icon ── */
+/* ── Icon — always centered in the 52px collapsed strip ── */
 .dock-icon {
   font-size: 1.125rem;
   flex-shrink: 0;
-  /* Icon is always centered in the collapsed 52px strip */
   width: var(--dock-width-collapsed);
   min-width: var(--dock-width-collapsed);
   display: flex;
@@ -84,13 +84,12 @@
   justify-content: center;
 }
 
-/* ── Label — hidden in collapsed state ── */
+/* ── Label — invisible in collapsed, fades in during expansion ── */
 .dock-label {
   font-size: 0.875rem;
   font-weight: inherit;
   color: inherit;
   opacity: 0;
-  /* Labels fade in during expansion — linear to match width */
   transition: opacity 100ms linear 80ms;
   white-space: nowrap;
   overflow: hidden;
@@ -108,7 +107,7 @@
   flex-shrink: 0;
 }
 
-/* ── Admin item accent ── */
+/* ── Admin item ── */
 .dock-admin.active {
   color: var(--color-accent);
   border-left-color: var(--color-accent);

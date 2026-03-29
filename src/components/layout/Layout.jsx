@@ -7,10 +7,13 @@ export default function Layout({ children }) {
   return (
     <div className="layout">
       <Header />
-      <Dock />
-      <main className="layout-main">
-        {children}
-      </main>
+      {/* layout-body is the push container: dock + main are flex siblings */}
+      <div className="layout-body">
+        <Dock />
+        <main className="layout-main">
+          {children}
+        </main>
+      </div>
       <ToastContainer />
     </div>
   )

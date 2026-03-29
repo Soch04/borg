@@ -27,9 +27,11 @@
   height: 100%;
   padding: 0 1rem;
   border-right: 1px solid var(--color-border);
+  /* Always show full branding — dock is a push child, not an overlay */
   width: var(--dock-width-collapsed);
+  min-width: var(--dock-width-collapsed);
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .header-brand-icon {

@@ -242,28 +242,30 @@ function OverviewTab({ currentOrg, orgData, members }) {
         </div>
       </div>
 
-      {/* Database Sanitization Tool */}
-      <div className="card sanitize-card animate-fade-in" style={{ gridColumn: 'span 2' }}>
-        <h3>🚀 Database Sanitization</h3>
-        <p>Prune all unauthorized user accounts and purge message history. <strong>Irreversible action.</strong></p>
-        <button 
-          className="btn btn-lg btn-danger" 
-          style={{ marginTop: '1.5rem' }}
-          onClick={async () => {
-             if (window.confirm("CRITICAL: This will delete ALL users (except authorized admins) and purge ALL conversation history. Proceed?")) {
-               try {
-                 await runSystemSanitization();
-                 alert("Sanitization Complete!");
-                 window.location.reload();
-               } catch (e) {
-                 alert("Sanitization failed: " + e.message);
+      {/* Database Sanitization Tool — hidden from UI */}
+      {false && (
+        <div className="card sanitize-card animate-fade-in" style={{ gridColumn: 'span 2' }}>
+          <h3>🚀 Database Sanitization</h3>
+          <p>Prune all unauthorized user accounts and purge message history. <strong>Irreversible action.</strong></p>
+          <button 
+            className="btn btn-lg btn-danger" 
+            style={{ marginTop: '1.5rem' }}
+            onClick={async () => {
+               if (window.confirm("CRITICAL: This will delete ALL users (except authorized admins) and purge ALL conversation history. Proceed?")) {
+                 try {
+                   await runSystemSanitization();
+                   alert("Sanitization Complete!");
+                   window.location.reload();
+                 } catch (e) {
+                   alert("Sanitization failed: " + e.message);
+                 }
                }
-             }
-          }}
-        >
-          Run System Sanitization
-        </button>
-      </div>
+            }}
+          >
+            Run System Sanitization
+          </button>
+        </div>
+      )}
     </div>
   )
 }
